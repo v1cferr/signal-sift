@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic RSS 2.0 fixture: relative links, HTML content with a script,
+     tracking parameters, and one item without a link (must be skipped). -->
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Example Blog</title>
+    <link>https://example.org/</link>
+    <item>
+      <title>Rust on NixOS &amp; flakes</title>
+      <link>/posts/rust-on-nixos/?utm_source=rss#top</link>
+      <guid>https://example.org/posts/rust-on-nixos/</guid>
+      <pubDate>Wed, 14 Oct 2026 12:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>Pin the toolchain with a flake. See the <a href="https://nixos.org/manual/">manual</a>.</p><script>steal()</script>]]></content:encoded>
+    </item>
+    <item>
+      <title>Second post</title>
+      <link>https://example.org/posts/second/</link>
+      <description>Short &lt;b&gt;summary&lt;/b&gt;.</description>
+    </item>
+    <item>
+      <title>No link here</title>
+      <description>Orphan.</description>
+    </item>
+  </channel>
+</rss>

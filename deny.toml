@@ -24,6 +24,13 @@ allow = [
 ]
 confidence-threshold = 0.9
 
+# Mozilla's CA certificate bundle, shipped as data (via reqwest's rustls
+# platform verifier). CDLA-Permissive-2.0 is a permissive data license; it is
+# allowed for this crate only, not globally. See docs/adr/0007-license.md.
+[[licenses.exceptions]]
+crate = "webpki-root-certs"
+allow = ["CDLA-Permissive-2.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

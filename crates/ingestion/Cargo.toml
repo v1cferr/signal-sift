@@ -1,0 +1,25 @@
+[package]
+name = "signalsift-ingestion"
+description = "Feed collection for SignalSift: SSRF-safe HTTP, conditional GET, feed parsing, URL canonicalization."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+feed-rs = "3.0.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "gzip", "charset"] }
+serde.workspace = true
+signalsift-core.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "net", "io-util"] }
+
+[lints]
+workspace = true

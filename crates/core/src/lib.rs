@@ -5,6 +5,7 @@
 //! unit-tested in isolation and reused by any front end.
 
 pub mod config;
+pub mod links;
 pub mod profile;
 pub mod timestamp;
 

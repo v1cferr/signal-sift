@@ -10,7 +10,6 @@
 
 pub mod cue;
 pub mod json3;
-pub mod links;
 pub mod segment;
 pub mod subprocess;
 pub mod usage;

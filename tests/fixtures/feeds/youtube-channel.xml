@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic fixture with the structure of a YouTube channel feed (fetched
+     2026-10-15). Ids and titles are public metadata; the description is a
+     placeholder, not the creator's text. -->
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=UCLW51-XEzuOm5RwPMChHBMw"/>
+ <id>yt:channel:LW51-XEzuOm5RwPMChHBMw</id>
+ <title>Augusto Galego</title>
+ <link rel="alternate" href="https://www.youtube.com/channel/UCLW51-XEzuOm5RwPMChHBMw"/>
+ <author><name>Augusto Galego</name><uri>https://www.youtube.com/channel/UCLW51-XEzuOm5RwPMChHBMw</uri></author>
+ <published>2014-03-16T08:36:09+00:00</published>
+ <entry>
+  <id>yt:video:BZxHviFY_YY</id>
+  <yt:videoId>BZxHviFY_YY</yt:videoId>
+  <yt:channelId>UCLW51-XEzuOm5RwPMChHBMw</yt:channelId>
+  <title>Como a IA Pode Melhorar a Segurança do Seu Software</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=BZxHviFY_YY"/>
+  <author><name>Augusto Galego</name><uri>https://www.youtube.com/channel/UCLW51-XEzuOm5RwPMChHBMw</uri></author>
+  <published>2026-10-15T13:00:37+00:00</published>
+  <updated>2026-10-15T23:16:51+00:00</updated>
+  <media:group>
+   <media:title>Como a IA Pode Melhorar a Segurança do Seu Software</media:title>
+   <media:description>Placeholder description. Reference: https://example.org/guide?utm_source=youtube&amp;x=1</media:description>
+  </media:group>
+ </entry>
+</feed>

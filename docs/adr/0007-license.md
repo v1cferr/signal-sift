@@ -15,6 +15,10 @@ dual MIT/Apache-2.0 license, which lets downstream users pick either.
 - The first check found `option-ext` (MPL-2.0) via `directories`. Instead of
   widening the policy, the dependency was replaced by a dozen lines of XDG
   resolution.
+- `webpki-root-certs` (Mozilla's CA bundle, pulled in by reqwest's rustls
+  verifier) is CDLA-Permissive-2.0, a permissive license for data. It is
+  allowed as a crate-scoped exception, so no other crate can use that license
+  unnoticed.
 - External tools (yt-dlp: Unlicense; FFmpeg: LGPL/GPL depending on build;
   whisper.cpp and llama.cpp: MIT) are executed as separate programs, never
   linked, so they do not affect the license of this code. Model weights have
