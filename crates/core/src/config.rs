@@ -173,18 +173,14 @@ impl Config {
     pub fn state_dir(&self) -> Result<PathBuf, ConfigError> {
         match &self.paths.state_dir {
             Some(p) => Ok(p.clone()),
-            None => project_dirs()
-                .and_then(|d| d.state_dir().map(Path::to_path_buf))
-                .ok_or(ConfigError::NoHome),
+            None => xdg_dir("XDG_STATE_HOME", ".local/state").ok_or(ConfigError::NoHome),
         }
     }
 
     pub fn cache_dir(&self) -> Result<PathBuf, ConfigError> {
         match &self.paths.cache_dir {
             Some(p) => Ok(p.clone()),
-            None => project_dirs()
-                .map(|d| d.cache_dir().to_path_buf())
-                .ok_or(ConfigError::NoHome),
+            None => xdg_dir("XDG_CACHE_HOME", ".cache").ok_or(ConfigError::NoHome),
         }
     }
 
@@ -195,11 +191,24 @@ impl Config {
 
 /// `$XDG_CONFIG_HOME/signalsift/config.toml`.
 pub fn default_config_file() -> Option<PathBuf> {
-    project_dirs().map(|d| d.config_dir().join("config.toml"))
+    xdg_dir("XDG_CONFIG_HOME", ".config").map(|d| d.join("config.toml"))
 }
 
-fn project_dirs() -> Option<directories::ProjectDirs> {
-    directories::ProjectDirs::from("", "", APP)
+/// `$VAR/signalsift`, or `$HOME/<fallback>/signalsift` when `$VAR` is unset or
+/// relative (the XDG spec says relative values must be ignored). Resolved by
+/// hand: the `directories` crate would add an MPL-2.0 transitive dependency
+/// for these few lines (see docs/adr/0007-license.md).
+fn xdg_dir(var: &str, fallback: &str) -> Option<PathBuf> {
+    let base = std::env::var_os(var)
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .map(|home| home.join(fallback))
+        })?;
+    Some(base.join(APP))
 }
 
 /// Durations are written as whole seconds in TOML, which is what a human

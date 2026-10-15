@@ -17,7 +17,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -27,6 +27,19 @@
     in
     {
       formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
+
+      packages = forAllSystems (pkgs: {
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.signalsift;
+        signalsift = pkgs.callPackage ./deploy/nixos/package.nix { };
+      });
+
+      # `nix flake check` builds the package, which runs the Rust test suite
+      # inside the sandbox: no network, no GPU, no host tools.
+      checks = forAllSystems (pkgs: {
+        package = self.packages.${pkgs.stdenv.hostPlatform.system}.signalsift;
+      });
+
+      homeManagerModules.default = import ./deploy/nixos/home-manager.nix self;
 
       devShells = forAllSystems (
         pkgs:
