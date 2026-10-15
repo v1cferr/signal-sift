@@ -6,14 +6,15 @@
 
 mod error;
 mod proc_stats;
+pub mod views;
 
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use signalsift_core::Profile;
 use signalsift_storage::{Db, Summary};
 use tokio::sync::watch;
@@ -48,6 +49,9 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/v1/status", get(status))
+        .route("/v1/items", get(list_items))
+        .route("/v1/items/{id}", get(get_item))
+        .route("/v1/items/{id}/segments", get(get_segments))
         .fallback(|| async { ApiError::NotFound("no such route".into()) })
         .with_state(state)
 }
@@ -84,6 +88,67 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
         database,
         process: read_self_stats(),
     }))
+}
+
+#[derive(Deserialize)]
+struct PageQuery {
+    limit: Option<u32>,
+    cursor: Option<String>,
+}
+
+async fn list_items(
+    State(state): State<AppState>,
+    Query(q): Query<PageQuery>,
+) -> Result<Json<views::Page<views::ItemSummary>>, ApiError> {
+    let cursor = match q.cursor {
+        Some(c) => Some(
+            c.parse::<i64>()
+                .map_err(|_| ApiError::BadRequest("invalid cursor".into()))?,
+        ),
+        None => None,
+    };
+    let limit = q.limit.unwrap_or(20);
+    let page = state
+        .inner
+        .db
+        .read(move |c| views::list_items(c, limit, cursor))
+        .await?;
+    Ok(Json(page))
+}
+
+async fn get_item(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<views::ItemDetail>, ApiError> {
+    state
+        .inner
+        .db
+        .read(move |c| views::item_detail(c, id))
+        .await?
+        .map(Json)
+        .ok_or_else(|| ApiError::NotFound(format!("item {id} not found")))
+}
+
+async fn get_segments(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<SegmentsResponse>, ApiError> {
+    let segments = state
+        .inner
+        .db
+        .read(move |c| views::item_segments(c, id))
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("item {id} not found")))?;
+    Ok(Json(SegmentsResponse {
+        item_id: id,
+        segments,
+    }))
+}
+
+#[derive(Serialize)]
+struct SegmentsResponse {
+    item_id: i64,
+    segments: Vec<views::SegmentView>,
 }
 
 #[cfg(test)]
@@ -127,6 +192,25 @@ mod tests {
         assert_eq!(code, StatusCode::OK);
         assert_eq!(body["profile"], "gaming");
         assert_eq!(body["database"]["schema_version"], 1);
+    }
+
+    #[tokio::test]
+    async fn items_and_segments_round_trip_over_http() {
+        let (db, _dir, id) = views::tests::seeded().await;
+        let (_tx, rx) = watch::channel(Profile::Balanced);
+        let app = router(AppState::new(db, rx));
+        let (code, page) = get_json(app.clone(), "/v1/items?limit=1").await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(page["items"][0]["id"], id);
+        assert_eq!(page["items"][0]["transcript"]["partial"], true);
+        let (code, segs) = get_json(app.clone(), &format!("/v1/items/{id}/segments")).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(segs["segments"][0]["start"], "12:34");
+        let (code, body) = get_json(app.clone(), "/v1/items/999").await;
+        assert_eq!(code, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["code"], "not_found");
+        let (code, _) = get_json(app, "/v1/items?cursor=abc").await;
+        assert_eq!(code, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
