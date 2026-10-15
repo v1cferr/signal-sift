@@ -1,0 +1,38 @@
+# Plain systemd user unit for distributions without Home Manager.
+# NixOS users should prefer deploy/nixos/home-manager.nix, which generates the
+# same unit with store paths filled in.
+#
+#   install -Dm644 signalsift.service ~/.config/systemd/user/signalsift.service
+#   systemctl --user daemon-reload && systemctl --user enable --now signalsift
+#
+# Expects `signalsift`, `yt-dlp` and `ffmpeg` on the PATH below.
+
+[Unit]
+Description=SignalSift content intelligence daemon
+Documentation=https://github.com/v1cferr/signal-sift
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/signalsift serve
+Restart=on-failure
+RestartSec=10
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+Environment=MALLOC_ARENA_MAX=2
+
+# Yield to the desktop.
+Nice=10
+CPUWeight=20
+IOWeight=20
+# Covers child processes (whisper.cpp, llama.cpp) as well as the daemon.
+MemoryMax=6G
+
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=default.target
