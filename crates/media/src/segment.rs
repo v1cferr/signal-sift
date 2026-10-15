@@ -86,7 +86,10 @@ fn by_windows(cues: &[Cue], policy: WindowPolicy) -> Vec<Segment> {
             .map(|n| n.start_ms.saturating_sub(cues[i].end_ms))
             .unwrap_or(u64::MAX);
         let last = i + 1 == cues.len();
-        if last || (len >= policy.target_ms && gap >= policy.pause_ms) || len >= policy.max_ms {
+        // Normalized captions have no gaps (rolling lines are clamped into a
+        // partition), so a sentence end is the other acceptable cut point.
+        let boundary = gap >= policy.pause_ms || ends_sentence(&cues[i].text);
+        if last || (len >= policy.target_ms && boundary) || len >= policy.max_ms {
             out.push(Segment {
                 start_ms: cues[start].start_ms,
                 end_ms: cues[i].end_ms,
@@ -97,6 +100,10 @@ fn by_windows(cues: &[Cue], policy: WindowPolicy) -> Vec<Segment> {
         }
     }
     out
+}
+
+fn ends_sentence(text: &str) -> bool {
+    text.trim_end().ends_with(['.', '?', '!', '…'])
 }
 
 fn join<'a>(cues: impl Iterator<Item = &'a Cue>) -> String {
@@ -148,6 +155,26 @@ mod tests {
             .collect();
         let segs = segment(&cues, &[], WindowPolicy::default());
         assert!(segs.iter().all(|s| s.end_ms - s.start_ms <= 300_000));
+    }
+
+    #[test]
+    fn gapless_captions_are_cut_at_sentence_ends() {
+        // Contiguous cues (no pauses), a sentence end every 10th cue.
+        let cues: Vec<Cue> = (0..200)
+            .map(|i| Cue {
+                start_ms: i * 5000,
+                end_ms: (i + 1) * 5000,
+                text: if i % 10 == 9 {
+                    "fim.".into()
+                } else {
+                    "e".into()
+                },
+            })
+            .collect();
+        let segs = segment(&cues, &[], WindowPolicy::default());
+        let first = &segs[0];
+        assert_eq!(first.end_ms - first.start_ms, 200_000);
+        assert!(first.text.ends_with("fim."));
     }
 
     #[test]

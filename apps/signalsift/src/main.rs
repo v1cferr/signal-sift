@@ -1,6 +1,7 @@
 //! `signalsift` — daemon and command-line interface.
 
 mod doctor;
+mod media;
 mod serve;
 
 use std::io::IsTerminal;
@@ -35,6 +36,11 @@ enum Command {
     Status,
     /// Check configuration, directories, external tools and the GPU.
     Doctor,
+    /// Video and podcast pipeline: captions, local transcription, segments.
+    Media {
+        #[command(subcommand)]
+        command: media::MediaCommand,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -65,6 +71,9 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             .map(|()| ExitCode::SUCCESS),
         Command::Status => runtime.block_on(status(config)).map(|()| ExitCode::SUCCESS),
         Command::Doctor => runtime.block_on(doctor::run(&config)),
+        Command::Media { command } => runtime
+            .block_on(media::run(config, command))
+            .map(|()| ExitCode::SUCCESS),
     }
 }
 
