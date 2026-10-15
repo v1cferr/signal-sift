@@ -213,6 +213,61 @@ mod tests {
         assert_eq!(code, StatusCode::BAD_REQUEST);
     }
 
+    /// Paths documented in contracts/openapi.yaml, read without a YAML
+    /// parser: path keys are the two-space-indented lines under `paths:`.
+    fn documented_paths() -> Vec<String> {
+        let spec = include_str!("../../../contracts/openapi.yaml");
+        spec.lines()
+            .skip_while(|l| *l != "paths:")
+            .skip(1)
+            .take_while(|l| l.is_empty() || l.starts_with(' '))
+            .filter_map(|l| l.strip_prefix("  /").and_then(|p| p.strip_suffix(':')))
+            .map(|p| format!("/{p}"))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn every_documented_path_is_routed() {
+        let paths = documented_paths();
+        assert!(paths.len() >= 5, "parser found {paths:?}");
+        for path in paths {
+            let (app, _dir) = app();
+            let concrete = path.replace("{id}", "1");
+            let res = app
+                .oneshot(Request::get(&concrete).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            // A missing item is fine (404 not_found from the handler); a
+            // missing route would also be 404, but with the router's message.
+            assert_ne!(
+                body["error"]["message"], "no such route",
+                "{path} is documented but not routed"
+            );
+        }
+    }
+
+    #[test]
+    fn every_route_is_documented() {
+        let documented = documented_paths();
+        let source = include_str!("lib.rs");
+        let routes: Vec<&str> = source
+            .lines()
+            .filter(|l| l.trim_start().starts_with(".route(\""))
+            .collect();
+        assert!(routes.len() >= 5, "found only {} routes", routes.len());
+        for line in routes {
+            let path = line.split('"').nth(1).unwrap();
+            assert!(
+                documented.iter().any(|d| d == path),
+                "{path} is routed but missing from openapi.yaml"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn unknown_routes_use_the_error_envelope() {
         let (app, _dir) = app();

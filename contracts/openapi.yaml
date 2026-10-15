@@ -1,0 +1,216 @@
+openapi: 3.1.0
+info:
+  title: SignalSift API
+  version: "1"
+  description: |
+    Local HTTP/JSON API of the SignalSift daemon. Loopback only by default.
+    Within v1, changes are additive: clients must ignore unknown fields.
+    Every error uses the Error schema.
+  license:
+    name: MIT OR Apache-2.0
+servers:
+  - url: http://127.0.0.1:7878
+paths:
+  /health:
+    get:
+      summary: Liveness probe (no database access)
+      operationId: health
+      responses:
+        "200":
+          description: Daemon is running
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+  /v1/status:
+    get:
+      summary: Daemon status, profile, database counts and own resource usage
+      operationId: getStatus
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+        "500": { $ref: "#/components/responses/Error" }
+  /v1/items:
+    get:
+      summary: Items, newest first
+      operationId: listItems
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: cursor
+          in: query
+          description: Opaque value from `next_cursor` of the previous page.
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of items
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ItemSummary" }
+                  next_cursor: { type: [string, "null"] }
+        "400": { $ref: "#/components/responses/Error" }
+  /v1/items/{id}:
+    get:
+      summary: One item with transcript coverage and explicit references
+      operationId: getItem
+      parameters:
+        - { $ref: "#/components/parameters/ItemId" }
+      responses:
+        "200":
+          description: Item
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ItemDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/items/{id}/segments:
+    get:
+      summary: Segments of an item, in media order, with deep links
+      operationId: getItemSegments
+      parameters:
+        - { $ref: "#/components/parameters/ItemId" }
+      responses:
+        "200":
+          description: Segments
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [item_id, segments]
+                properties:
+                  item_id: { type: integer }
+                  segments:
+                    type: array
+                    items: { $ref: "#/components/schemas/Segment" }
+        "404": { $ref: "#/components/responses/Error" }
+components:
+  parameters:
+    ItemId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable code.
+              enum: [bad_request, unauthorized, not_found, internal]
+            message: { type: string, description: For humans; may change. }
+    Status:
+      type: object
+      required: [api_version, version, uptime_secs, profile, database]
+      properties:
+        api_version: { type: string, enum: [v1] }
+        version: { type: string }
+        uptime_secs: { type: integer }
+        profile: { type: string, enum: [balanced, gaming, eco] }
+        database:
+          type: object
+          properties:
+            schema_version: { type: integer }
+            sources: { type: integer }
+            items: { type: integer }
+            transcripts: { type: integer }
+            segments: { type: integer }
+            jobs_queued: { type: integer }
+            jobs_running: { type: integer }
+            jobs_failed: { type: integer }
+        process:
+          type: [object, "null"]
+          description: Read from procfs; absent off Linux.
+          properties:
+            rss_kib: { type: integer }
+            rss_peak_kib: { type: integer }
+            threads: { type: integer }
+            cpu_time_ms: { type: integer }
+    Transcript:
+      type: object
+      required: [origin, language, engine, status, partial, covered_ms, cues]
+      properties:
+        origin: { type: string, enum: [manual_subtitles, auto_subtitles, asr] }
+        language: { type: string }
+        engine: { type: string }
+        status: { type: string, enum: [in_progress, partial, complete, failed] }
+        partial:
+          type: boolean
+          description: True unless complete. Clients must surface it.
+        covered_ms: { type: integer }
+        coverage: { type: [number, "null"], minimum: 0, maximum: 1 }
+        cues: { type: integer }
+    ItemSummary:
+      type: object
+      required: [id, kind, title, url]
+      properties:
+        id: { type: integer }
+        kind: { type: string, enum: [article, video, podcast_episode] }
+        title: { type: string }
+        url: { type: string, format: uri }
+        external_id: { type: [string, "null"] }
+        author: { type: [string, "null"] }
+        published_at: { type: [string, "null"], format: date-time }
+        duration_ms: { type: [integer, "null"] }
+        transcript:
+          oneOf:
+            - { $ref: "#/components/schemas/Transcript" }
+            - { type: "null" }
+    ItemDetail:
+      allOf:
+        - { $ref: "#/components/schemas/ItemSummary" }
+        - type: object
+          required: [discovered_at, segment_count, references]
+          properties:
+            discovered_at: { type: string, format: date-time }
+            description:
+              type: [string, "null"]
+              description: Untrusted third-party text. Render as plain text.
+            segment_count: { type: integer }
+            references:
+              type: array
+              items:
+                type: object
+                required: [url, origin]
+                properties:
+                  url: { type: string, format: uri }
+                  origin: { type: string, enum: [description, transcript, article] }
+                  at_ms: { type: [integer, "null"] }
+    Segment:
+      type: object
+      required: [id, seq, text]
+      properties:
+        id: { type: integer }
+        seq: { type: integer }
+        start_ms: { type: [integer, "null"] }
+        end_ms: { type: [integer, "null"] }
+        start: { type: [string, "null"], description: "H:MM:SS for display" }
+        title: { type: [string, "null"], description: Creator chapter title }
+        text: { type: string }
+        link:
+          type: [string, "null"]
+          format: uri
+          description: Opens the media at this segment's start (rounded down to the second).
