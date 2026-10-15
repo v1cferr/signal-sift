@@ -21,6 +21,7 @@ pub struct Config {
     pub paths: PathsConfig,
     pub runtime: RuntimeConfig,
     pub media: MediaConfig,
+    pub asr: AsrConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -71,6 +72,45 @@ pub struct MediaConfig {
     pub max_output_bytes: u64,
 }
 
+/// Local speech recognition, used only when a video has no usable captions.
+/// Disabled until a model is configured: models are never downloaded
+/// automatically (see docs/benchmarks/ for which one to fetch).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AsrConfig {
+    pub whisper_cli: PathBuf,
+    /// ggml model file, e.g. ggml-large-v3-turbo-q5_0.bin.
+    pub model: Option<PathBuf>,
+    /// Silero VAD model; strongly recommended (skips silence, curbs hallucinations).
+    pub vad_model: Option<PathBuf>,
+    /// Spoken language when the platform does not declare one; `auto` detects.
+    pub language: String,
+    pub threads: u32,
+    pub use_gpu: bool,
+    #[serde(with = "secs")]
+    pub chunk: Duration,
+    #[serde(with = "secs")]
+    pub overlap: Duration,
+    /// Keep downloaded audio after a complete transcription (default: delete).
+    pub keep_audio: bool,
+}
+
+impl Default for AsrConfig {
+    fn default() -> Self {
+        Self {
+            whisper_cli: "whisper-cli".into(),
+            model: None,
+            vad_model: None,
+            language: "auto".into(),
+            threads: 4,
+            use_gpu: true,
+            chunk: Duration::from_secs(600),
+            overlap: Duration::from_secs(30),
+            keep_audio: false,
+        }
+    }
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -96,7 +136,7 @@ impl Default for MediaConfig {
             yt_dlp: "yt-dlp".into(),
             ffmpeg: "ffmpeg".into(),
             subtitle_languages: vec!["pt".into(), "en".into()],
-            max_duration: Duration::from_secs(4 * 3600),
+            max_duration: Duration::from_secs(6 * 3600),
             subprocess_timeout: Duration::from_secs(300),
             max_output_bytes: 64 * 1024 * 1024,
         }
@@ -161,6 +201,11 @@ impl Config {
                  set server.allow_non_loopback = true only behind a reverse proxy",
                 self.server.listen
             )));
+        }
+        if self.asr.overlap >= self.asr.chunk {
+            return Err(ConfigError::Invalid(
+                "asr.overlap must be shorter than asr.chunk".into(),
+            ));
         }
         if self.runtime.heavy_concurrency == 0 {
             return Err(ConfigError::Invalid(

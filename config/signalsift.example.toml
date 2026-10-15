@@ -28,8 +28,24 @@ yt_dlp = "yt-dlp"
 ffmpeg = "ffmpeg"
 subtitle_languages = ["pt", "en"]
 # Seconds. Longer media is refused before downloading anything.
-max_duration = 14400
+max_duration = 21600
 # Seconds per subprocess call.
 subprocess_timeout = 300
 # Bytes read from a subprocess or subtitle file, at most.
 max_output_bytes = 67108864
+
+[asr]
+# Local speech recognition, used only when a video has no captions. Disabled
+# until `model` is set; SignalSift never downloads models by itself.
+# See docs/benchmarks/whisper-arc-b580.md for measured options.
+whisper_cli = "whisper-cli"
+# model = "/home/me/.local/share/signalsift/models/ggml-large-v3-turbo-q5_0.bin"
+# vad_model = "/home/me/.local/share/signalsift/models/ggml-silero-v5.1.2.bin"
+# Used when the platform does not declare the spoken language.
+language = "auto"
+threads = 4
+use_gpu = true
+# Seconds of audio per whisper.cpp run, and overlap between runs.
+chunk = 600
+overlap = 30
+keep_audio = false

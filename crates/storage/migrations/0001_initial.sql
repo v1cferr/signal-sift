@@ -94,6 +94,7 @@ CREATE TABLE segments (
     seq            INTEGER NOT NULL,
     start_ms       INTEGER,
     end_ms         INTEGER,
+    title          TEXT,              -- creator-provided chapter title, if any
     text           TEXT NOT NULL,
     UNIQUE (item_id, transcript_id, seq)
 ) STRICT;
