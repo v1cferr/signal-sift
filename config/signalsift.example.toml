@@ -1,0 +1,35 @@
+# SignalSift example configuration.
+#
+# Copy to ~/.config/signalsift/config.toml and edit. Every key is optional;
+# the values below are the built-in defaults. Unknown keys are an error, so a
+# typo cannot silently fall back to a default.
+
+[server]
+# Loopback only. The API has no TLS; exposing it needs a reverse proxy and
+# `allow_non_loopback = true`.
+listen = "127.0.0.1:7878"
+allow_non_loopback = false
+
+[paths]
+# Defaults follow XDG: $XDG_STATE_HOME/signalsift and $XDG_CACHE_HOME/signalsift.
+# state_dir = "/home/me/.local/state/signalsift"
+# cache_dir = "/home/me/.cache/signalsift"
+
+[runtime]
+# balanced | gaming | eco
+profile = "balanced"
+# Transcription and LLM jobs allowed at the same time.
+heavy_concurrency = 1
+# Seconds shutdown waits for in-flight work.
+shutdown_grace = 10
+
+[media]
+yt_dlp = "yt-dlp"
+ffmpeg = "ffmpeg"
+subtitle_languages = ["pt", "en"]
+# Seconds. Longer media is refused before downloading anything.
+max_duration = 14400
+# Seconds per subprocess call.
+subprocess_timeout = 300
+# Bytes read from a subprocess or subtitle file, at most.
+max_output_bytes = 67108864

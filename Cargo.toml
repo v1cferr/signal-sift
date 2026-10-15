@@ -1,0 +1,46 @@
+[workspace]
+resolver = "3"
+members = ["apps/signalsift", "crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/v1cferr/signal-sift"
+publish = false
+
+[workspace.dependencies]
+signalsift-core = { path = "crates/core" }
+signalsift-storage = { path = "crates/storage" }
+signalsift-api = { path = "crates/api" }
+
+anyhow = "1.0.104"
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio", "tracing"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+directories = "6.0.0"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+time = { version = "0.3.55", features = ["formatting", "parsing", "serde", "macros"] }
+tokio = { version = "1.53.3", features = ["rt", "macros", "net", "signal", "time", "sync", "process", "io-util"] }
+toml = "1.1.8"
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "env-filter", "json", "ansi"] }
+url = { version = "2.5.8", features = ["serde"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+# Smaller binary, smaller resident text. LTO and one codegen unit cost build
+# time only; the daemon is built rarely and runs for weeks.
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
