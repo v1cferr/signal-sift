@@ -1,0 +1,41 @@
+# Build output
+/target/
+/result
+/result-*
+
+# Local runtime data. The daemon writes to XDG directories by default, but a
+# developer may point it at the repository; none of this belongs in Git.
+/data/
+/state/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-shm
+*.db-wal
+
+# Media and models: large, often copyrighted, never versioned.
+*.wav
+*.mp3
+*.m4a
+*.opus
+*.ogg
+*.webm
+*.mp4
+*.gguf
+*.bin
+/models/
+
+# Local configuration may hold tokens; only config/*.example.toml is tracked.
+/config/*.toml
+!/config/*.example.toml
+.env
+.env.*
+
+# Benchmark raw output; curated summaries live in docs/benchmarks/.
+/bench-out/
+
+# Editors and direnv
+.direnv/
+.idea/
+.vscode/
+*.swp
