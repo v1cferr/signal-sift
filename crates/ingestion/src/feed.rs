@@ -39,10 +39,11 @@ pub struct ParsedFeed {
 pub struct FeedError(#[from] feed_rs::parser::ParseFeedError);
 
 pub fn parse(bytes: &[u8], feed_url: &Url) -> Result<ParsedFeed, FeedError> {
+    let bytes = strip_empty_media_descriptions(bytes);
     let feed = feed_rs::parser::Builder::new()
         .base_uri(Some(feed_url.as_str()))
         .build()
-        .parse(bytes)?;
+        .parse(bytes.as_ref())?;
     let mut entries = Vec::with_capacity(feed.entries.len());
     let mut skipped = 0;
     for e in feed.entries {
@@ -119,6 +120,37 @@ pub fn parse(bytes: &[u8], feed_url: &Url) -> Result<ParsedFeed, FeedError> {
     })
 }
 
+/// feed-rs 3.0.0 rejects a whole feed when one entry has an empty
+/// `<media:description></media:description>`, which YouTube emits for videos
+/// without a description (seen on a real channel feed, 2026-10-15). An empty
+/// element carries nothing, so it is removed before parsing. Borrowed when
+/// there is nothing to strip, which is the common case.
+fn strip_empty_media_descriptions(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    const EMPTY: [&[u8]; 2] = [
+        b"<media:description></media:description>",
+        b"<media:description/>",
+    ];
+    if !EMPTY
+        .iter()
+        .any(|pat| bytes.windows(pat.len()).any(|w| w == *pat))
+    {
+        return std::borrow::Cow::Borrowed(bytes);
+    }
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    'scan: while i < bytes.len() {
+        for pat in EMPTY {
+            if bytes[i..].starts_with(pat) {
+                i += pat.len();
+                continue 'scan;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 fn truncate(mut s: String) -> String {
     if let Some((idx, _)) = s.char_indices().nth(MAX_TEXT_CHARS) {
         s.truncate(idx);
@@ -162,6 +194,21 @@ mod tests {
         assert!(e.text.as_deref().unwrap().contains("flake"));
         assert!(!e.text.as_deref().unwrap().contains("<"));
         assert_eq!(e.links[0].as_str(), "https://nixos.org/manual/");
+    }
+
+    #[test]
+    fn entries_with_empty_media_descriptions_do_not_break_the_feed() {
+        let xml = include_str!("../../../tests/fixtures/feeds/youtube-channel.xml").replace(
+            "<media:description>Placeholder description. Reference: https://example.org/guide?utm_source=youtube&amp;x=1</media:description>",
+            "<media:description></media:description>",
+        );
+        let url = Url::parse(
+            "https://www.youtube.com/feeds/videos.xml?channel_id=UCLW51-XEzuOm5RwPMChHBMw",
+        )
+        .unwrap();
+        let feed = parse(xml.as_bytes(), &url).unwrap();
+        assert_eq!(feed.entries.len(), 1);
+        assert_eq!(feed.entries[0].text, None);
     }
 
     #[test]

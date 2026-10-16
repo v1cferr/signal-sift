@@ -122,7 +122,10 @@ pub fn decode_entities(s: &str) -> String {
     while let Some(amp) = rest.find('&') {
         out.push_str(&rest[..amp]);
         rest = &rest[amp..];
-        let Some(semi) = rest[..rest.len().min(12)].find(';') else {
+        // Byte search: `;` is ASCII, so its index is always a char boundary,
+        // whereas slicing the str at a fixed byte count may split a character.
+        let window = &rest.as_bytes()[..rest.len().min(12)];
+        let Some(semi) = window.iter().position(|&b| b == b';') else {
             out.push('&');
             rest = &rest[1..];
             continue;
@@ -204,6 +207,13 @@ mod tests {
     fn unterminated_tags_do_not_leak() {
         let (text, _) = to_text_and_links("ok <img src=x onerror=alert(1)", None);
         assert_eq!(text, "ok");
+    }
+
+    #[test]
+    fn ampersands_before_multibyte_text_do_not_panic() {
+        // Found on a real feed: '&' followed by accented text, no ';' nearby.
+        assert_eq!(decode_entities("P&D é ótimo; sim"), "P&D é ótimo; sim");
+        assert_eq!(decode_entities("&ééééééé"), "&ééééééé");
     }
 
     #[test]
