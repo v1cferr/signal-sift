@@ -16,3 +16,4 @@ pointer to the one that replaces it.
 | [0008](0008-nix.md) | Toolchain from nixpkgs; opt-in inference shell; user service | Accepted |
 | [0009](0009-feedback-driven-preferences.md) | Preferences adapt from like/dislike feedback | Proposed |
 | [0010](0010-local-web-ui.md) | A local web UI served by the daemon, no frontend toolchain | Accepted |
+| [0011](0011-gpu-required.md) | Heavy inference runs on the GPU or not at all | Accepted |
