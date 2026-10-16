@@ -12,8 +12,9 @@ there is work, as child processes that release all RAM and VRAM when they exit.
 > **Status: early development.** Working today: the daemon with feed
 > collection (RSS/Atom/JSON Feed, YouTube channels), a persistent job queue,
 > captions or local transcription (whisper.cpp) with resumable checkpoints,
-> live execution profiles, and the read/write API. LLM summaries, relevance
-> scoring and the `/v1/feed` endpoint are next. See [Roadmap](#roadmap).
+> local LLM summaries and per-segment relevance (llama.cpp), the ranked
+> `/v1/feed`, live execution profiles, and the read/write API.
+> See [Roadmap](#roadmap).
 
 ## Quick start
 
@@ -71,6 +72,34 @@ Interrupting a transcription (Ctrl-C) keeps what was done, marked *partial*;
 running the same command again resumes from the last 10-minute chunk. With the
 daemon running, `signalsift media queue <url>` hands the work to it instead.
 
+### Analyse with a local LLM
+
+Each segment is summarized and scored 0–100 against your interest profile;
+an item scores as its best segment, so the five relevant minutes of a long
+video surface with a link to them. Like the speech model, the LLM is never
+downloaded automatically. The benchmarked default
+([docs/benchmarks/llm-arc-b580.md](docs/benchmarks/llm-arc-b580.md)):
+
+```sh
+cd ~/.local/share/signalsift/models
+curl -LO https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/gemma-4-E4B_q4_0-it.gguf
+cp config/interests.example.toml ~/.config/signalsift/interests.toml   # then edit it
+```
+
+```toml
+[analysis]
+model = "/home/you/.local/share/signalsift/models/gemma-4-E4B_q4_0-it.gguf"
+```
+
+```sh
+./target/release/signalsift analyze BZxHviFY_YY       # foreground, one item
+curl -s 'localhost:7878/v1/feed?limit=5' | jq         # ranked highlights
+```
+
+With the daemon running, complete transcripts and new articles are analysed
+automatically. `llama-server` is started for a batch and stopped when the
+queue drains: no model stays in RAM or VRAM while idle.
+
 ## Configuration
 
 All keys are optional; see [`config/signalsift.example.toml`](config/signalsift.example.toml).
@@ -112,6 +141,7 @@ the token is created on first start with mode 0600.
 |----------|---|
 | `GET /health` | liveness |
 | `GET /v1/status` | version, profile, database counts, own RSS/CPU |
+| `GET /v1/feed?limit=&days=` | ranked highlights with the moment that earned each |
 | `GET /v1/sources` | sources, creators, poll state and errors |
 | `GET /v1/items?limit=&cursor=` | items, newest first |
 | `GET /v1/items/{id}` | item, transcript coverage, references |
@@ -131,8 +161,10 @@ scripts/bench-idle.sh 600        # idle RSS/CPU of the release binary
 ```
 
 Layout: `apps/signalsift` (CLI and daemon), `crates/core` (config, profiles,
-timestamps), `crates/storage` (SQLite), `crates/media` (yt-dlp, ffmpeg,
-whisper.cpp), `crates/api` (HTTP). Design decisions are recorded in
+timestamps), `crates/storage` (SQLite), `crates/ingestion` (feeds, SSRF-safe
+HTTP), `crates/media` (yt-dlp, ffmpeg, whisper.cpp), `crates/analysis`
+(llama.cpp, prompts, scoring), `crates/process` (bounded child processes),
+`crates/api` (HTTP). Design decisions are recorded in
 [`docs/adr`](docs/adr), measurements in [`docs/benchmarks`](docs/benchmarks).
 
 ## Roadmap
@@ -142,8 +174,9 @@ whisper.cpp), `crates/api` (HTTP). Design decisions are recorded in
 - [x] RSS/Atom/JSON Feed ingestion with conditional GET and SSRF protection
 - [x] Persistent job queue and profile-aware workers in the daemon
 - [x] `/v1/sources`, `PUT /v1/profile`, `POST /v1/feedback`, `POST /v1/media`
-- [ ] Local LLM summaries and per-segment relevance (llama.cpp)
-- [ ] `/v1/feed` (ranked highlights) and the interest profile file
+- [x] Local LLM summaries and per-segment relevance (llama.cpp, model chosen by benchmark)
+- [x] `/v1/feed` (ranked highlights) and the interest profile file
+- [ ] Owner-reviewed, larger relevance evaluation set
 - [ ] GLANCE dashboard integration ([design](docs/integration/glance.md))
 - [ ] Article text extraction for sites without feeds
 

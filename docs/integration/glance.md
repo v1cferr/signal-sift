@@ -68,12 +68,14 @@ One compact document, small enough to store as a single row:
 }
 ```
 
-Rules: `limit` defaults to 5; a highlight is a **segment** when one scored
-high, so a relevant five minutes inside a long, mostly irrelevant video still
-appears; `processing.partial` must be shown, since a partial transcript says
-nothing about the uncovered part. The feed is computed from stored analyses,
-which arrive with V1C-101; until then `/v1/items` and
-`/v1/items/{id}/segments` are available.
+Rules: `limit` defaults to 5; each highlight points (`moment`) at the segment
+that earned its score, so a relevant five minutes inside a long, mostly
+irrelevant video still appears and opens at the right second;
+`processing.partial` must be shown, since a partial transcript says nothing
+about the uncovered part. **Implemented** since V1C-101: the exact schema is
+`Feed` in `contracts/openapi.yaml` (it adds `topics`, `published_at` and
+`moment.summary` to the sketch above). Relevance is a preference estimate:
+rank by it, do not present it as accuracy.
 
 ## Visual fit (for the QML phase)
 
