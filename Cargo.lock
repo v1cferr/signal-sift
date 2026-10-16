@@ -1611,11 +1611,14 @@ dependencies = [
  "serde_json",
  "signalsift-api",
  "signalsift-core",
+ "signalsift-ingestion",
  "signalsift-media",
  "signalsift-storage",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

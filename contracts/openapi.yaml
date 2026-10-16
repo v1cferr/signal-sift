@@ -36,6 +36,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Status" }
         "500": { $ref: "#/components/responses/Error" }
+  /v1/sources:
+    get:
+      summary: Registered sources with their creator and poll state
+      operationId: listSources
+      responses:
+        "200":
+          description: All sources
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sources]
+                properties:
+                  sources:
+                    type: array
+                    items: { $ref: "#/components/schemas/Source" }
+        "500": { $ref: "#/components/responses/Error" }
   /v1/items:
     get:
       summary: Items, newest first
@@ -149,6 +166,22 @@ components:
             rss_peak_kib: { type: integer }
             threads: { type: integer }
             cpu_time_ms: { type: integer }
+    Source:
+      type: object
+      required: [id, kind, url, enabled, poll_interval_secs, consecutive_failures, items]
+      properties:
+        id: { type: integer }
+        kind: { type: string, enum: [feed, youtube_channel, podcast, newsletter] }
+        url: { type: string, format: uri }
+        title: { type: [string, "null"] }
+        creator: { type: [string, "null"] }
+        enabled: { type: boolean }
+        poll_interval_secs: { type: integer, minimum: 300 }
+        next_poll_at: { type: [string, "null"], format: date-time, description: Absent when due now. }
+        last_success_at: { type: [string, "null"], format: date-time }
+        last_error: { type: [string, "null"] }
+        consecutive_failures: { type: integer }
+        items: { type: integer }
     Transcript:
       type: object
       required: [origin, language, engine, status, partial, covered_ms, cues]

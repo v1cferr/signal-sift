@@ -22,6 +22,7 @@ pub struct Config {
     pub runtime: RuntimeConfig,
     pub media: MediaConfig,
     pub asr: AsrConfig,
+    pub collection: CollectionConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -70,6 +71,29 @@ pub struct MediaConfig {
     pub subprocess_timeout: Duration,
     /// Upper bound on bytes read from a subprocess's stdout or a subtitle file.
     pub max_output_bytes: u64,
+}
+
+/// Feed polling. Deliberately polite: the default interval is an hour and
+/// the schema refuses anything under five minutes.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CollectionConfig {
+    #[serde(with = "secs")]
+    pub default_interval: Duration,
+    #[serde(with = "secs")]
+    pub fetch_timeout: Duration,
+    /// Feeds larger than this are abandoned mid-download.
+    pub max_feed_bytes: u64,
+}
+
+impl Default for CollectionConfig {
+    fn default() -> Self {
+        Self {
+            default_interval: Duration::from_secs(3600),
+            fetch_timeout: Duration::from_secs(30),
+            max_feed_bytes: 10 * 1024 * 1024,
+        }
+    }
 }
 
 /// Local speech recognition, used only when a video has no usable captions.
@@ -201,6 +225,11 @@ impl Config {
                  set server.allow_non_loopback = true only behind a reverse proxy",
                 self.server.listen
             )));
+        }
+        if self.collection.default_interval < Duration::from_secs(300) {
+            return Err(ConfigError::Invalid(
+                "collection.default_interval must be at least 300 seconds".into(),
+            ));
         }
         if self.asr.overlap >= self.asr.chunk {
             return Err(ConfigError::Invalid(

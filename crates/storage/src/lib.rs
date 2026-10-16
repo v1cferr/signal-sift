@@ -7,6 +7,7 @@
 
 pub mod media;
 mod migrations;
+pub mod sources;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

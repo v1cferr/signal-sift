@@ -1,0 +1,23 @@
+# Sources used to validate SignalSift (`signalsift sources import <file>`).
+#
+# Every URL below was checked on 2026-10-15 and returned a valid feed.
+# Sites without a discoverable feed are listed in comments instead of being
+# guessed: they need HTML extraction, which is not implemented yet.
+
+[[creator]]
+name = "Fabio Akita"
+feeds = ["https://akitaonrails.com/index.xml"]
+# https://themakitachronicles.com/ and blog.themakitachronicles.com: no feed
+# found (/feed, /rss.xml, /index.xml, /rss/ all 404).
+
+[[creator]]
+name = "Augusto Galego"
+feeds = ["https://www.youtube.com/feeds/videos.xml?channel_id=UCLW51-XEzuOm5RwPMChHBMw"]
+# https://www.augustogalego.com/blog: no feed (/blog/rss serves an HTML page).
+
+[[creator]]
+name = "Waine Jr."
+feeds = [
+    "https://wainejr.com/index.xml",
+    "https://www.youtube.com/feeds/videos.xml?channel_id=UCNdd-FYANxk0DIvGhXVnMIg",
+]

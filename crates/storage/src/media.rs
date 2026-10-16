@@ -54,6 +54,39 @@ pub fn upsert_item(conn: &Connection, item: &NewItem) -> Result<i64> {
     )?)
 }
 
+/// Inserts an item unless one with the same canonical URL or platform id
+/// exists (any unique constraint). Returns the new id, or `None` for a
+/// duplicate. Used by feed polling, where existing items must not be touched.
+pub fn upsert_item_if_new(
+    conn: &Connection,
+    source_id: Option<i64>,
+    item: &NewItem,
+) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row(
+            "INSERT INTO items (source_id, kind, canonical_url, external_id, title, author,
+                                published_at, discovered_at, duration_ms, content_text, metadata_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT DO NOTHING
+             RETURNING id",
+            params![
+                source_id,
+                item.kind,
+                item.canonical_url,
+                item.external_id,
+                item.title,
+                item.author,
+                item.published_at,
+                now_ms(),
+                item.duration_ms,
+                item.content_text,
+                item.metadata_json,
+            ],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
 /// Records explicit URLs found in an item. Re-running is a no-op.
 pub fn add_references(
     conn: &Connection,

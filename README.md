@@ -92,6 +92,7 @@ Loopback only by default. Versioned under `/v1`; errors use
 |----------|---|
 | `GET /health` | liveness |
 | `GET /v1/status` | version, profile, database counts, own RSS/CPU |
+| `GET /v1/sources` | sources, creators, poll state and errors |
 | `GET /v1/items?limit=&cursor=` | items, newest first |
 | `GET /v1/items/{id}` | item, transcript coverage, references |
 | `GET /v1/items/{id}/segments` | segments with `?t=` deep links |

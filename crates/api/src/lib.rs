@@ -49,6 +49,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/v1/status", get(status))
+        .route("/v1/sources", get(list_sources))
         .route("/v1/items", get(list_items))
         .route("/v1/items/{id}", get(get_item))
         .route("/v1/items/{id}/segments", get(get_segments))
@@ -88,6 +89,16 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
         database,
         process: read_self_stats(),
     }))
+}
+
+#[derive(Serialize)]
+struct SourcesResponse {
+    sources: Vec<views::SourceView>,
+}
+
+async fn list_sources(State(state): State<AppState>) -> Result<Json<SourcesResponse>, ApiError> {
+    let sources = state.inner.db.read(views::list_sources).await?;
+    Ok(Json(SourcesResponse { sources }))
 }
 
 #[derive(Deserialize)]

@@ -238,6 +238,44 @@ pub fn item_segments(conn: &Connection, id: i64) -> Result<Option<Vec<SegmentVie
     Ok(Some(segments))
 }
 
+#[derive(Debug, Serialize)]
+pub struct SourceView {
+    pub id: i64,
+    /// `feed`, `youtube_channel`, `podcast` or `newsletter`.
+    pub kind: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub creator: Option<String>,
+    pub enabled: bool,
+    pub poll_interval_secs: i64,
+    pub next_poll_at: Option<String>,
+    pub last_success_at: Option<String>,
+    pub last_error: Option<String>,
+    pub consecutive_failures: i64,
+    pub items: i64,
+}
+
+pub fn list_sources(conn: &Connection) -> Result<Vec<SourceView>> {
+    Ok(signalsift_storage::sources::list_sources(conn)?
+        .into_iter()
+        .map(|s| SourceView {
+            id: s.id,
+            kind: s.kind,
+            url: s.url,
+            title: s.title,
+            creator: s.creator,
+            enabled: s.enabled,
+            poll_interval_secs: s.poll_interval_secs,
+            // 0 means "due immediately"; show it as absent rather than 1970.
+            next_poll_at: (s.next_poll_at > 0).then(|| rfc3339(s.next_poll_at)),
+            last_success_at: s.last_success_at.map(rfc3339),
+            last_error: s.last_error,
+            consecutive_failures: s.consecutive_failures,
+            items: s.items,
+        })
+        .collect())
+}
+
 /// Resolves an item by numeric id or by platform id (e.g. a YouTube video id).
 pub fn find_item_id(conn: &Connection, key: &str) -> Result<Option<i64>> {
     if let Ok(id) = key.parse::<i64>() {
