@@ -67,6 +67,10 @@ This is how the owner's dotfiles deploy it (commit `8ca8a221` there, 2026-10-16)
 
 ## 3. After the first switch
 
+The module also puts `signalsift` on your PATH (`installCli`) and writes the
+generated config to `~/.config/signalsift/config.toml`, the file the CLI reads
+by default, so the CLI and the service always agree.
+
 ```sh
 systemctl --user status signalsift
 signalsift doctor                       # every line should be ok

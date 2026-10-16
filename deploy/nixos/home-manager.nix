@@ -67,6 +67,16 @@ in
       '';
     };
 
+    installCli = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Put `signalsift` on the user's PATH. The CLI and the service read the
+        same generated config (`$XDG_CONFIG_HOME/signalsift/config.toml`), so
+        commands like `signalsift analyze` see the service's models.
+      '';
+    };
+
     memoryMax = lib.mkOption {
       type = lib.types.str;
       default = "10G";
@@ -80,6 +90,12 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    home.packages = lib.mkIf cfg.installCli [ cfg.package ];
+
+    # One config for the service and the CLI: the daemon's default path, owned
+    # by Nix (the app never writes it).
+    xdg.configFile."signalsift/config.toml".source = configFile;
+
     systemd.user.services.signalsift = {
       Unit = {
         Description = "SignalSift content intelligence daemon";
@@ -89,6 +105,7 @@ in
 
       Service = {
         ExecStart = "${lib.getExe cfg.package} --config ${configFile} serve";
+        # Restart when the config changes (the store path is in ExecStart).
         Restart = "on-failure";
         RestartSec = 10;
         Environment = [
