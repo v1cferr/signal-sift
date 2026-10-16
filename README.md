@@ -106,9 +106,10 @@ With the daemon running, open <http://127.0.0.1:7878/>: the ranked feed,
 each highlight's moment (opens the video at the right second), the scored
 segments of every item, 👍/👎 feedback and the profile switch. Reading needs
 nothing; the first 👍/👎 asks for the token in
-`~/.local/state/signalsift/api-token`, kept in that browser only. The page is
-plain HTML/CSS/JS embedded in the binary (no Node, no build step) and only
-listens on loopback ([ADR 0010](docs/adr/0010-local-web-ui.md)).
+`~/.local/state/signalsift/api-token`, kept in that browser only. The interface
+text is in Brazilian Portuguese. The page is plain HTML/CSS/JS embedded in the
+binary (no Node, no build step) and only listens on loopback
+([ADR 0010](docs/adr/0010-local-web-ui.md)).
 
 ## Configuration
 

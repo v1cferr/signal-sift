@@ -34,6 +34,17 @@ outside the LAN) was explicitly left out for now.
   address. That needs a change in the owner's NixOS configuration and a
   separate decision.
 
+## Interface language (amended 2026-10-16)
+
+The interface text is Brazilian Portuguese, at the owner's request. This
+is a product choice about what the UI shows, not an exception to the
+en-US rule for code, comments and docs: every visible string lives in one
+dictionary (`T` and the value labels in `crates/api/src/ui/app.js`), the
+identifiers and comments stay in English, and API error codes are mapped to
+Portuguese messages instead of showing the API's English text. Dates use
+the pt-BR format. Switching languages later means adding a second
+dictionary, not editing the views.
+
 ## Consequences
 
 - The UI ships and versions with the daemon, so it can never drift from the
