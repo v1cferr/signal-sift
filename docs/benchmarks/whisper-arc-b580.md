@@ -92,6 +92,21 @@ carries about ±1 s of error; the true alignment is at least this good. Deep
 links round down to the second, so ASR timestamps are adequate for `?t=`.
 The ASR run took 57.0 s wall for 821 s of audio, including the download.
 
+## 4. Profile switch during a daemon transcription
+
+Daemon running (`signalsift serve`, chunks of 120 s for a short test),
+`signalsift media queue BZxHviFY_YY --force-asr`, then after 20 s
+`signalsift profile set gaming`, then `signalsift profile set balanced`.
+
+| Check | Result |
+|-------|--------|
+| whisper-cli running before the switch | 1 process |
+| whisper-cli 3 s after `gaming` | 0 processes (killed with its process group) |
+| Transcript after `gaming` | `partial`, 230 000 ms covered (28 %), 50 cues, 2 segments already readable |
+| DRM file descriptors held by the daemon | 0 (no GPU memory attributable to the daemon) |
+| Job state | released to `queued`, attempt not counted |
+| After `balanced` | resumed at 230 000 ms, completed: 821 000 ms, 256 cues, 5 segments |
+
 ## Not measured yet
 
 - Word error rate against a human transcript (no reference transcript available).

@@ -2,6 +2,12 @@
 # Measures an idle SignalSift daemon: RSS and CPU over a fixed window.
 #
 #   scripts/bench-idle.sh [SECONDS] [BINARY]
+#   SIGNALSIFT_BENCH_SOURCES=config/sources.example.toml scripts/bench-idle.sh 600
+#
+# With SIGNALSIFT_BENCH_SOURCES, those sources are imported first, so the
+# daemon polls them at startup and the window measures idle-after-collection
+# (allocator retention, TLS state) instead of a never-used daemon. That run
+# makes real HTTP requests.
 #
 # Starts the daemon on a throwaway state directory and a spare port, waits for
 # /health, then samples /proc/<pid> every 5 s. CPU% is (utime+stime delta) /
@@ -23,12 +29,21 @@ state_dir = "$work/state"
 cache_dir = "$work/cache"
 CONF
 
+if [[ -n ${SIGNALSIFT_BENCH_SOURCES:-} ]]; then
+  "$bin" --config "$work/config.toml" sources import "$SIGNALSIFT_BENCH_SOURCES" 2>/dev/null
+fi
+
 "$bin" --config "$work/config.toml" serve 2>"$work/log" &
 pid=$!
 for _ in $(seq 50); do
   curl -sf "http://127.0.0.1:$port/health" >/dev/null && break
   sleep 0.1
 done
+if [[ -n ${SIGNALSIFT_BENCH_SOURCES:-} ]]; then
+  # Let the startup poll finish before the window opens.
+  sleep 15
+  echo "startup polls: $(grep -c polled "$work/log")" >&2
+fi
 
 hz=$(getconf CLK_TCK)
 ticks() { awk '{print $14 + $15}' "/proc/$pid/stat"; }

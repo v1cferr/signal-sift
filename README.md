@@ -9,10 +9,11 @@ It is a single Rust daemon built to stay out of the way: idle, it holds a few
 MiB of RAM and no CPU; speech recognition and language models run only while
 there is work, as child processes that release all RAM and VRAM when they exit.
 
-> **Status: early development.** Working today: the daemon, the SQLite store,
-> the read API, and the audiovisual pipeline (captions, or local transcription
-> with whisper.cpp when there are none). Feed ingestion, LLM analysis and the
-> relevance feed are next. See [Roadmap](#roadmap).
+> **Status: early development.** Working today: the daemon with feed
+> collection (RSS/Atom/JSON Feed, YouTube channels), a persistent job queue,
+> captions or local transcription (whisper.cpp) with resumable checkpoints,
+> live execution profiles, and the read/write API. LLM summaries, relevance
+> scoring and the `/v1/feed` endpoint are next. See [Roadmap](#roadmap).
 
 ## Quick start
 
@@ -25,6 +26,20 @@ cargo build --release
 ./target/release/signalsift serve          # API on http://127.0.0.1:7878
 curl -s localhost:7878/v1/status | jq
 ```
+
+### Follow sources
+
+```sh
+./target/release/signalsift sources import config/sources.example.toml
+./target/release/signalsift sources add https://www.youtube.com/channel/UCLW51-XEzuOm5RwPMChHBMw --creator "Augusto Galego"
+./target/release/signalsift serve
+```
+
+The daemon polls each source on its own schedule (hourly by default, with
+conditional GET and failure backoff). New videos from the last 7 days get
+their captions fetched automatically; videos without captions are transcribed
+locally if a speech model is configured, after a grace period in which
+YouTube often adds captions by itself.
 
 ### Ingest a video
 
@@ -53,7 +68,8 @@ vad_model = "/home/you/.local/share/signalsift/models/ggml-silero-v5.1.2.bin"
 ```
 
 Interrupting a transcription (Ctrl-C) keeps what was done, marked *partial*;
-running the same command again resumes from the last 10-minute chunk.
+running the same command again resumes from the last 10-minute chunk. With the
+daemon running, `signalsift media queue <url>` hands the work to it instead.
 
 ## Configuration
 
@@ -68,7 +84,9 @@ Unknown keys are rejected. Paths follow XDG:
 
 Execution profiles (`runtime.profile`): `balanced` (default), `gaming` (API
 and light collection only, no transcription or inference), `eco` (API and
-state only).
+state only). Switch the running daemon with `signalsift profile set gaming`:
+a transcription in progress stops at once (its processes are killed, the
+GPU memory is released) and resumes from its checkpoint when you switch back.
 
 ## Running as a service
 
@@ -87,6 +105,8 @@ daemon and its inference children.
 
 Loopback only by default. Versioned under `/v1`; errors use
 `{"error": {"code", "message"}}`. Contract: [`contracts/openapi.yaml`](contracts/openapi.yaml).
+Writes require `Authorization: Bearer $(cat ~/.local/state/signalsift/api-token)`;
+the token is created on first start with mode 0600.
 
 | Endpoint | |
 |----------|---|
@@ -96,6 +116,9 @@ Loopback only by default. Versioned under `/v1`; errors use
 | `GET /v1/items?limit=&cursor=` | items, newest first |
 | `GET /v1/items/{id}` | item, transcript coverage, references |
 | `GET /v1/items/{id}/segments` | segments with `?t=` deep links |
+| `PUT /v1/profile` | switch profile live (token) |
+| `POST /v1/feedback` | interest feedback on an item or segment (token) |
+| `POST /v1/media` | queue a video for captions or transcription (token) |
 
 ## Development
 
@@ -116,11 +139,13 @@ whisper.cpp), `crates/api` (HTTP). Design decisions are recorded in
 
 - [x] Daemon, CLI (`serve`, `status`, `doctor`), SQLite with migrations, CI, Nix
 - [x] Captions and local transcription with checkpoints and partial coverage
-- [ ] RSS/Atom/JSON Feed ingestion with conditional GET and SSRF protection
-- [ ] Persistent job queue and profile-aware scheduler in the daemon
+- [x] RSS/Atom/JSON Feed ingestion with conditional GET and SSRF protection
+- [x] Persistent job queue and profile-aware workers in the daemon
+- [x] `/v1/sources`, `PUT /v1/profile`, `POST /v1/feedback`, `POST /v1/media`
 - [ ] Local LLM summaries and per-segment relevance (llama.cpp)
-- [ ] `/v1/feed`, `/v1/sources`, `POST /v1/feedback`
+- [ ] `/v1/feed` (ranked highlights) and the interest profile file
 - [ ] GLANCE dashboard integration ([design](docs/integration/glance.md))
+- [ ] Article text extraction for sites without feeds
 
 ## Responsible use
 

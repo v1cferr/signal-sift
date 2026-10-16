@@ -13,9 +13,10 @@
 - Read models live in `api::views` and are also used by the CLI, so there is
   one contract for every client. Nothing is shaped for QML specifically.
 - Lists use keyset cursors (`next_cursor`), not offsets.
-- Write endpoints (`POST /v1/feedback`, coming next) require a bearer token
-  even on loopback, because any local process or browser page could otherwise
-  write. The token is generated on first start into the state directory with
-  mode 0600 and read by trusted clients (GLANCE) from there.
+- Write endpoints (`PUT /v1/profile`, `POST /v1/feedback`, `POST /v1/media`)
+  require a bearer token even on loopback, because any local process or
+  browser page could otherwise write. The token is generated on first start
+  into the state directory with mode 0600 and read by trusted clients (the
+  CLI, GLANCE's fetch script) from there. Bodies are capped at 16 KiB.
 - The OpenAPI document is versioned in `contracts/openapi.yaml`; a test checks
   that every documented path is routed.
