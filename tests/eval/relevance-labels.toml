@@ -1,0 +1,158 @@
+# Relevance labels for evaluating segment scoring (V1C-101 / V1C-104).
+#
+# PROVISIONAL: labelled on 2026-10-15 by the coding assistant from the raw
+# segment text, against config/interests.example.toml, before any model
+# output was seen. The owner should review them; they encode a preference,
+# not a fact. No transcript text is stored here (third-party content): a
+# segment is identified by video id and start position, which is stable for
+# a given transcript and segmentation.
+#
+# label: 2 = would want to watch this part; 1 = relevant, worth listing;
+#        0 = not relevant to the profile.
+# Segmentation: SignalSift window policy at commit 44132ff (captions for
+# BZxHviFY_YY, whisper large-v3-turbo + VAD for N3eU-2VIByQ, every 4th
+# segment of the latter).
+
+[[segment]]
+video = "BZxHviFY_YY"
+start_ms = 80
+label = 2
+note = "AI as a vulnerability-hunting aid; models finding unknown vulnerabilities (after a chair ad)"
+
+[[segment]]
+video = "BZxHviFY_YY"
+start_ms = 219239
+label = 2
+note = "prompt injection compared to SQL injection, guardrails, tool calling risks"
+
+[[segment]]
+video = "BZxHviFY_YY"
+start_ms = 457599
+label = 2
+note = "least-privilege tools, treat model output as untrusted, secrets, OWASP AI cheat sheet, SAST and dependency scanning"
+
+[[segment]]
+video = "BZxHviFY_YY"
+start_ms = 722240
+label = 1
+note = "using models to review endpoints, auth and business logic; course plug at the end"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 0
+label = 0
+note = "opening, sponsors, teaser of AI news"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 732860
+label = 0
+note = "playing the guest's card game on screen"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 1608110
+label = 2
+note = "encrypting personal data at rest, threat model for leaked messages, AI-written code is not secure by default"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 2343550
+label = 2
+note = "AI contributions to the Linux kernel, why Claude dominates, Chinese open models competent for coding"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 3075320
+label = 1
+note = "parallel agent sessions coordinating; introduction to automated tests (beginner level)"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 3810720
+label = 1
+note = "staging vs production and beta environments (beginner level)"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 4778220
+label = 0
+note = "phone phreaking history, what a hacker is"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 5570800
+label = 1
+note = "opinion on the limits of LLM progress; industry politics"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 6294650
+label = 2
+note = "renting H100/H200 vs consumer GPUs, VRAM limits, unified memory tokens/s, how LLMs and reasoning work"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 7044470
+label = 1
+note = "training data curation, data exhaustion, AI company valuations"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 7770480
+label = 0
+note = "AI-generated game trailer, text-to-speech podcast of a newsletter"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 8496770
+label = 1
+note = "career growth through deliberate practice; AI as a paralegal-like assistant"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 9243090
+label = 2
+note = "migrating a 90 TB home storage server on Linux with an AI in the terminal"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 9967320
+label = 2
+note = "dry runs, oracles and automated verification when an AI runs destructive operations"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 10699040
+label = 2
+note = "console emulators; decompiling Android APKs with JADX and auditing them with an AI"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 11435010
+label = 2
+note = "shared memory tool across Claude, Codex and Kimi; short/long-term memory and consolidation"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 12520470
+label = 1
+note = "the host's open book on practical AI use"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 13266530
+label = 0
+note = "sponsor reads, Iron Man iteration analogy"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 14160560
+label = 1
+note = "token prices, a new frontier model from Meta, risks of remote agents reading email"
+
+[[segment]]
+video = "N3eU-2VIByQ"
+start_ms = 14889630
+label = 1
+note = "new labs and models, token usage inflation, prompt caching"
