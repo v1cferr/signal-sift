@@ -126,6 +126,62 @@ pub async fn run(config: &Config) -> anyhow::Result<ExitCode> {
         }
     }
 
+    // Models are optional; a configured path that does not exist is a
+    // mistake worth flagging loudly, an unset one is a feature left off.
+    let models: [(&str, Option<&Path>, &str); 3] = [
+        ("asr model", config.asr.model.as_deref(), "asr.model"),
+        (
+            "vad model",
+            config.asr.vad_model.as_deref(),
+            "asr.vad_model",
+        ),
+        (
+            "llm model",
+            config.analysis.model.as_deref(),
+            "analysis.model",
+        ),
+    ];
+    for (name, path, key) in models {
+        match path {
+            Some(p) if p.is_file() => r.line(Level::Ok, name, p.display().to_string()),
+            Some(p) => r.line(
+                Level::Fail,
+                name,
+                format!("{key} = {} does not exist", p.display()),
+            ),
+            None => r.line(
+                Level::Warn,
+                name,
+                format!("{key} not set; feature disabled"),
+            ),
+        }
+    }
+    if config.analysis.model.is_some() {
+        match config.analysis.interests_path() {
+            Some(p) if p.is_file() => match signalsift_analysis::InterestProfile::load(&p) {
+                Ok(profile) => r.line(
+                    Level::Ok,
+                    "interests",
+                    format!("{} ({} topics)", p.display(), profile.topics.len()),
+                ),
+                Err(e) => r.line(Level::Fail, "interests", e.to_string()),
+            },
+            Some(p) => r.line(
+                Level::Fail,
+                "interests",
+                format!(
+                    "{} missing; copy config/interests.example.toml",
+                    p.display()
+                ),
+            ),
+            None => r.line(
+                Level::Fail,
+                "interests",
+                "cannot resolve the interests file path",
+            ),
+        }
+    }
+
     let render_nodes: Vec<String> = std::fs::read_dir("/dev/dri")
         .map(|d| {
             d.filter_map(Result::ok)

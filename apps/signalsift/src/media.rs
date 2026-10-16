@@ -380,6 +380,14 @@ async fn transcribe(
     };
     let engine = cfg.engine_id();
     let (lang, eng) = (language.to_owned(), engine.clone());
+    let eng_lookup = engine.clone();
+    if let Some(done) = db
+        .read(move |c| repo::complete_transcript_by_engine(c, item_id, "asr", &eng_lookup))
+        .await?
+    {
+        tracing::info!(transcript = done.id, language = %done.language, "complete transcript from this engine exists; reusing it");
+        return Ok(done.id);
+    }
     let t = db
         .write(move |c| {
             repo::open_transcript(c, item_id, "asr", &lang, &eng, Some(duration_ms as i64))
@@ -399,10 +407,20 @@ async fn transcribe(
             max_stdout: ytdlp.limits.max_stdout,
         },
     };
-    let (audio, inv) = audio_dl
-        .download_audio(info_path, &dir.join("audio"))
-        .await
-        .context("downloading audio")?;
+    let (audio, inv) = match audio_dl.download_audio(info_path, &dir.join("audio")).await {
+        Ok(r) => r,
+        Err(e) => {
+            // Nothing transcribed yet: record the attempt as failed rather
+            // than leave an empty "in progress" transcript behind. A partial
+            // one keeps its status and resumes on the next attempt.
+            let (tid, covered) = (t.id, t.covered_ms);
+            if covered == 0 {
+                db.write(move |c| repo::finish_transcript(c, tid, "failed"))
+                    .await?;
+            }
+            return Err(anyhow::Error::new(e).context("downloading audio"));
+        }
+    };
     invocations.push(inv);
 
     let chunks = plan_chunks(

@@ -186,6 +186,29 @@ pub fn find_transcript(
         .optional()?)
 }
 
+/// A complete transcript of `item_id` from `origin` and `engine`, whatever
+/// its language label. The same audio transcribed by the same engine is the
+/// same work: a job that only knows the language as "auto" must reuse a
+/// complete transcript labelled "pt" instead of transcribing again.
+pub fn complete_transcript_by_engine(
+    conn: &Connection,
+    item_id: i64,
+    origin: &str,
+    engine: &str,
+) -> Result<Option<TranscriptState>> {
+    Ok(conn
+        .query_row(
+            "SELECT t.id, t.origin, t.language, t.engine, t.status, t.covered_ms, t.duration_ms,
+                    (SELECT count(*) FROM transcript_cues c WHERE c.transcript_id = t.id)
+             FROM transcripts t
+             WHERE item_id = ?1 AND origin = ?2 AND engine = ?3 AND status = 'complete'
+             ORDER BY covered_ms DESC LIMIT 1",
+            params![item_id, origin, engine],
+            transcript_row,
+        )
+        .optional()?)
+}
+
 /// The transcript the API should show for an item: complete before partial,
 /// then human subtitles before automatic captions before local ASR.
 pub fn best_transcript(conn: &Connection, item_id: i64) -> Result<Option<TranscriptState>> {
@@ -468,6 +491,30 @@ mod tests {
         assert_eq!(
             (t.cues, t.covered_ms, t.engine.as_str()),
             (0, 0, "whisper turbo")
+        );
+    }
+
+    #[tokio::test]
+    async fn complete_transcripts_are_found_regardless_of_language_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("t.db")).unwrap();
+        let (hit, miss) = db
+            .write(|c| {
+                let id = upsert_item(c, &item("u"))?;
+                let t = open_transcript(c, id, "asr", "pt", "whisper turbo", Some(10))?;
+                append_cues(c, t.id, &[cue(0, 1, "a")], 10)?;
+                finish_transcript(c, t.id, "complete")?;
+                Ok((
+                    complete_transcript_by_engine(c, id, "asr", "whisper turbo")?,
+                    complete_transcript_by_engine(c, id, "asr", "whisper base")?,
+                ))
+            })
+            .await
+            .unwrap();
+        assert_eq!(hit.map(|t| t.language).as_deref(), Some("pt"));
+        assert!(
+            miss.is_none(),
+            "another engine's transcript is not the same work"
         );
     }
 
