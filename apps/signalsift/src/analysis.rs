@@ -13,7 +13,7 @@ use anyhow::{Context, bail};
 use serde_json::json;
 use signalsift_analysis::analyze::AnalysisError;
 use signalsift_analysis::llama::{LlamaConfig, LlamaServer};
-use signalsift_analysis::prompt::{ContentContext, SegmentAnalysis};
+use signalsift_analysis::prompt::{ContentContext, SegmentAnalysis, language_name};
 use signalsift_analysis::provider::InferenceProvider;
 use signalsift_analysis::{Analyzer, InterestProfile, PROMPT_VERSION, item_relevance, split_text};
 use signalsift_core::Config;
@@ -131,10 +131,20 @@ pub async fn analyze_item(
     }
     let llm = server.as_ref().expect("started above");
     let model = llm.model_id().to_owned();
+    // Configured language, else the transcript's known spoken language;
+    // only text of unknown language falls back to "same as the content".
+    let language = match &config.analysis.language {
+        Some(l) => Some(l.clone()),
+        None => db
+            .read(move |c| repo::best_transcript(c, item_id))
+            .await?
+            .map(|t| language_name(&t.language))
+            .filter(|l| l != "auto"),
+    };
     let analyzer = Analyzer {
         provider: llm,
         profile: &profile,
-        language: config.analysis.language.as_deref(),
+        language: language.as_deref(),
     };
 
     let (m, f) = (model.clone(), fingerprint.clone());

@@ -45,11 +45,6 @@ async fn main() {
         request_timeout: Duration::from_secs(300),
     };
     let server = LlamaServer::start(&cfg).await.expect("llama-server");
-    let analyzer = Analyzer {
-        provider: &server,
-        profile: &profile,
-        language: None,
-    };
 
     let mut results = Vec::new();
     let (mut ok, mut failed) = (0usize, 0usize);
@@ -63,6 +58,15 @@ async fn main() {
         let video = item["external_id"].as_str().unwrap_or("").to_owned();
         let title = item["title"].as_str().unwrap_or("").to_owned();
         let author = item["author"].as_str().map(str::to_owned);
+        // Same rule as the daemon: name the transcript's language.
+        let language = item["transcript"]["language"]
+            .as_str()
+            .map(signalsift_analysis::prompt::language_name);
+        let analyzer = Analyzer {
+            provider: &server,
+            profile: &profile,
+            language: language.as_deref(),
+        };
         for seg in doc["segments"]
             .as_array()
             .expect("segments")
@@ -98,7 +102,10 @@ async fn main() {
     let wall = started.elapsed();
     let usage = server.usage();
     let load_ms = server.load_ms;
-    let model_id = analyzer.provider_model_id();
+    let model_id = {
+        use signalsift_analysis::provider::InferenceProvider;
+        server.model_id().to_owned()
+    };
     server.stop().await;
 
     let summary = serde_json::json!({
@@ -123,15 +130,4 @@ async fn main() {
             .unwrap(),
     )
     .expect("write output");
-}
-
-trait ModelId {
-    fn provider_model_id(&self) -> String;
-}
-
-impl ModelId for Analyzer<'_, LlamaServer> {
-    fn provider_model_id(&self) -> String {
-        use signalsift_analysis::provider::InferenceProvider;
-        self.provider.model_id().to_owned()
-    }
 }

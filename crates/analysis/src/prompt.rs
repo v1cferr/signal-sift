@@ -17,7 +17,7 @@ use crate::interests::InterestProfile;
 
 /// Bumped whenever prompts or schemas change in a way that affects scores.
 /// Stored with every analysis so old and new results can be told apart.
-pub const PROMPT_VERSION: &str = "segment-v1";
+pub const PROMPT_VERSION: &str = "segment-v2";
 
 const MAX_SEGMENT_CHARS: usize = 12_000;
 
@@ -47,6 +47,27 @@ pub struct ContentContext<'a> {
     pub kind: &'a str,
     /// `H:MM:SS` range within the media, when there is one.
     pub position: Option<String>,
+}
+
+/// Turns a language code from transcript metadata ("pt", "pt-BR", "en")
+/// into a name a model follows reliably. A bare "same language as the
+/// content" instruction was ignored by gemma-4-E4B on several Portuguese
+/// segments in the 2026-10-15 benchmark; naming the language fixed that.
+pub fn language_name(code: &str) -> String {
+    let base = code
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(code)
+        .to_ascii_lowercase();
+    match base.as_str() {
+        "pt" => "Portuguese".into(),
+        "en" => "English".into(),
+        "es" => "Spanish".into(),
+        "fr" => "French".into(),
+        "de" => "German".into(),
+        "it" => "Italian".into(),
+        _ => code.to_owned(),
+    }
 }
 
 /// `None` means "write in the language of the content".
@@ -291,6 +312,13 @@ mod tests {
         assert_eq!(parse_item(raw).unwrap().summary, "s");
         assert!(parse_item("I cannot help with that").is_err());
         assert!(parse_segment(r#"{"summary":"","topics":[],"matched_interests":[],"relevance":1,"rationale":"x","applications":[],"mentions":[]}"#, &profile()).is_err());
+    }
+
+    #[test]
+    fn language_codes_become_names() {
+        assert_eq!(language_name("pt"), "Portuguese");
+        assert_eq!(language_name("pt-BR"), "Portuguese");
+        assert_eq!(language_name("tlh"), "tlh");
     }
 
     #[test]
