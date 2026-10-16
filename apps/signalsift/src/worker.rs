@@ -22,8 +22,7 @@ use tokio::sync::{Notify, watch};
 
 use crate::media;
 
-pub const CAPTIONS: &str = "media.captions";
-pub const ASR: &str = "media.asr";
+pub use signalsift_storage::jobs::{MEDIA_ASR as ASR, MEDIA_CAPTIONS as CAPTIONS};
 
 /// Videos younger than this get a second chance at captions before local
 /// transcription: YouTube often adds automatic captions hours after upload,

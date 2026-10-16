@@ -4,20 +4,22 @@
 //! versioned route lives under `/v1`; `/health` stays unversioned so that
 //! service managers can probe it without caring about API evolution.
 
+pub mod auth;
 mod error;
 mod proc_stats;
 pub mod views;
+mod writes;
 
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::{Path, Query, State};
-use axum::routing::get;
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use signalsift_core::Profile;
 use signalsift_storage::{Db, Summary};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 pub use error::ApiError;
 pub use proc_stats::{ProcStats, read_self_stats};
@@ -29,31 +31,61 @@ pub struct AppState {
 
 struct StateInner {
     db: Db,
-    profile: watch::Receiver<Profile>,
+    /// The daemon's profile. Changing it here reaches every worker.
+    profile: Arc<watch::Sender<Profile>>,
+    /// Wake the light and heavy workers after a job of their class is queued.
+    light_ready: Arc<Notify>,
+    heavy_ready: Arc<Notify>,
+    token: String,
     started: Instant,
 }
 
 impl AppState {
-    pub fn new(db: Db, profile: watch::Receiver<Profile>) -> Self {
+    pub fn new(
+        db: Db,
+        profile: Arc<watch::Sender<Profile>>,
+        light_ready: Arc<Notify>,
+        heavy_ready: Arc<Notify>,
+        token: String,
+    ) -> Self {
         Self {
             inner: Arc::new(StateInner {
                 db,
                 profile,
+                light_ready,
+                heavy_ready,
+                token,
                 started: Instant::now(),
             }),
         }
     }
+
+    pub(crate) fn token(&self) -> &str {
+        &self.inner.token
+    }
 }
+
+/// Request bodies are small JSON documents; anything larger is refused
+/// before it is buffered.
+const MAX_BODY_BYTES: usize = 16 * 1024;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/v1/status", get(status))
+        .route("/v1/profile", put(writes::set_profile))
         .route("/v1/sources", get(list_sources))
         .route("/v1/items", get(list_items))
         .route("/v1/items/{id}", get(get_item))
         .route("/v1/items/{id}/segments", get(get_segments))
+        .route("/v1/feedback", post(writes::post_feedback))
+        .route("/v1/media", post(writes::queue_media))
         .fallback(|| async { ApiError::NotFound("no such route".into()) })
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_token,
+        ))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
 }
 
@@ -163,17 +195,29 @@ struct SegmentsResponse {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
 
+    pub(crate) const TEST_TOKEN: &str = "test-token-0123456789abcdef0123456789abcdef";
+
+    pub(crate) fn test_state(db: Db, profile: Profile) -> AppState {
+        let (tx, _rx) = watch::channel(profile);
+        AppState::new(
+            db,
+            Arc::new(tx),
+            Arc::new(Notify::new()),
+            Arc::new(Notify::new()),
+            TEST_TOKEN.into(),
+        )
+    }
+
     fn app() -> (Router, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(&dir.path().join("t.db")).unwrap();
-        let (_tx, rx) = watch::channel(Profile::Gaming);
-        (router(AppState::new(db, rx)), dir)
+        (router(test_state(db, Profile::Gaming)), dir)
     }
 
     async fn get_json(app: Router, uri: &str) -> (StatusCode, serde_json::Value) {
@@ -208,8 +252,7 @@ mod tests {
     #[tokio::test]
     async fn items_and_segments_round_trip_over_http() {
         let (db, _dir, id) = views::tests::seeded().await;
-        let (_tx, rx) = watch::channel(Profile::Balanced);
-        let app = router(AppState::new(db, rx));
+        let app = router(test_state(db, Profile::Balanced));
         let (code, page) = get_json(app.clone(), "/v1/items?limit=1").await;
         assert_eq!(code, StatusCode::OK);
         assert_eq!(page["items"][0]["id"], id);
@@ -248,6 +291,10 @@ mod tests {
                 .oneshot(Request::get(&concrete).body(Body::empty()).unwrap())
                 .await
                 .unwrap();
+            // Write-only routes answer GET with 405: the path is routed.
+            if res.status() == StatusCode::METHOD_NOT_ALLOWED {
+                continue;
+            }
             let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
                 .await
                 .unwrap();

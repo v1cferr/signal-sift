@@ -18,11 +18,23 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     // blocking the event loop here is harmless and keeps startup ordered.
     let db = Db::open(&db_path).with_context(|| format!("opening {}", db_path.display()))?;
 
-    // The senders live for the whole function: dropping them would make the
+    // The senders live for the whole function (the profile sender is also
+    // held by the API, which switches profiles): dropping them would make the
     // receivers' `changed()` fail.
-    let (_profile_tx, profile_rx) = watch::channel(config.runtime.profile);
+    let (profile_tx, profile_rx) = watch::channel(config.runtime.profile);
+    let profile_tx = Arc::new(profile_tx);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let app = signalsift_api::router(AppState::new(db.clone(), profile_rx.clone()));
+    let light_ready = Arc::new(Notify::new());
+    let heavy_ready = Arc::new(Notify::new());
+    let token = signalsift_api::auth::ensure_token(&config.state_dir()?)
+        .context("creating the API token")?;
+    let app = signalsift_api::router(AppState::new(
+        db.clone(),
+        Arc::clone(&profile_tx),
+        Arc::clone(&light_ready),
+        Arc::clone(&heavy_ready),
+        token,
+    ));
 
     // Jobs left running by a crash or kill are queued again; every job kind
     // resumes from its own checkpoint.
@@ -36,8 +48,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let shared = Arc::new(worker::Shared {
         db: db.clone(),
         config: config.clone(),
-        light_ready: Arc::new(Notify::new()),
-        heavy_ready: Arc::new(Notify::new()),
+        light_ready,
+        heavy_ready,
         profile: profile_rx.clone(),
         shutdown: shutdown_rx.clone(),
     });

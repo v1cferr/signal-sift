@@ -6,6 +6,11 @@ info:
     Local HTTP/JSON API of the SignalSift daemon. Loopback only by default.
     Within v1, changes are additive: clients must ignore unknown fields.
     Every error uses the Error schema.
+
+    Reads are open on loopback. Every write requires `Authorization: Bearer
+    <token>`; the token is created on first start in
+    `$XDG_STATE_HOME/signalsift/api-token` (mode 0600). Request bodies are
+    limited to 16 KiB.
   license:
     name: MIT OR Apache-2.0
 servers:
@@ -36,6 +41,104 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Status" }
         "500": { $ref: "#/components/responses/Error" }
+  /v1/profile:
+    put:
+      summary: Switch the execution profile now (not persisted across restarts)
+      description: |
+        `gaming` and `eco` stop new heavy work immediately and cancel a running
+        transcription, which resumes from its checkpoint later.
+      operationId: setProfile
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profile]
+              additionalProperties: false
+              properties:
+                profile: { $ref: "#/components/schemas/Profile" }
+      responses:
+        "200":
+          description: Profile changed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [profile, previous]
+                properties:
+                  profile: { $ref: "#/components/schemas/Profile" }
+                  previous: { $ref: "#/components/schemas/Profile" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/feedback:
+    post:
+      summary: Record interest feedback on an item or one of its segments
+      operationId: postFeedback
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [item_id, verdict]
+              additionalProperties: false
+              properties:
+                item_id: { type: integer }
+                segment_id: { type: [integer, "null"], description: Must belong to the item. }
+                verdict: { type: string, enum: [interested, not_interested, already_known, wrong_topic] }
+                note: { type: [string, "null"], maxLength: 2000 }
+                client: { type: [string, "null"], maxLength: 64, description: "e.g. glance" }
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+  /v1/media:
+    post:
+      summary: Queue a YouTube video for processing by the daemon
+      description: |
+        `auto` fetches captions and transcribes locally only when there are
+        none (and a speech model is configured); `force` transcribes locally.
+        Queueing the same work twice is a no-op (`queued: false`).
+      operationId: queueMedia
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              additionalProperties: false
+              properties:
+                url: { type: string, description: YouTube URL or 11-character video id }
+                transcribe: { type: string, enum: [auto, force], default: auto }
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [video_id, job, queued]
+                properties:
+                  video_id: { type: string }
+                  job: { type: string, enum: [media.captions, media.asr] }
+                  queued: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
   /v1/sources:
     get:
       summary: Registered sources with their creator and poll state
@@ -113,6 +216,10 @@ paths:
                     items: { $ref: "#/components/schemas/Segment" }
         "404": { $ref: "#/components/responses/Error" }
 components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
   parameters:
     ItemId:
       name: id
@@ -126,6 +233,9 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    Profile:
+      type: string
+      enum: [balanced, gaming, eco]
     Error:
       type: object
       required: [error]
@@ -137,7 +247,7 @@ components:
             code:
               type: string
               description: Stable machine-readable code.
-              enum: [bad_request, unauthorized, not_found, internal]
+              enum: [bad_request, payload_too_large, unauthorized, not_found, internal]
             message: { type: string, description: For humans; may change. }
     Status:
       type: object
@@ -146,7 +256,7 @@ components:
         api_version: { type: string, enum: [v1] }
         version: { type: string }
         uptime_secs: { type: integer }
-        profile: { type: string, enum: [balanced, gaming, eco] }
+        profile: { $ref: "#/components/schemas/Profile" }
         database:
           type: object
           properties:

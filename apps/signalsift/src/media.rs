@@ -40,6 +40,14 @@ pub enum MediaCommand {
         #[arg(long)]
         language: Option<String>,
     },
+    /// Queue a video in the running daemon instead of processing it here.
+    Queue {
+        /// Video URL or 11-character id.
+        url: String,
+        /// Transcribe locally even if captions exist.
+        #[arg(long)]
+        force_asr: bool,
+    },
     /// Print a stored item with transcript status and segments as JSON.
     Show {
         /// Item id or YouTube video id.
@@ -74,6 +82,9 @@ pub async fn run(config: Config, cmd: MediaCommand) -> anyhow::Result<()> {
                 );
             }
             Ok(())
+        }
+        MediaCommand::Queue { url, force_asr } => {
+            crate::client::queue_media(&config, &url, force_asr).await
         }
         MediaCommand::Show { item, cues } => show(&db, item, cues).await,
     }

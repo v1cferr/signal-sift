@@ -11,6 +11,11 @@ use serde::Serialize;
 
 use crate::{Result, now_ms};
 
+/// Fetch captions for a video; may queue [`MEDIA_ASR`] when there are none.
+pub const MEDIA_CAPTIONS: &str = "media.captions";
+/// Local transcription of a video (heavy).
+pub const MEDIA_ASR: &str = "media.asr";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkClass {

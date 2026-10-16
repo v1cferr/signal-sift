@@ -1,5 +1,6 @@
 //! `signalsift` — daemon and command-line interface.
 
+mod client;
 mod collect;
 mod doctor;
 mod media;
@@ -39,6 +40,11 @@ enum Command {
     Status,
     /// Check configuration, directories, external tools and the GPU.
     Doctor,
+    /// Change the running daemon's execution profile.
+    Profile {
+        #[command(subcommand)]
+        command: client::ProfileCommand,
+    },
     /// Feed sources: add, import, list, poll.
     Sources {
         #[command(subcommand)]
@@ -79,6 +85,9 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             .map(|()| ExitCode::SUCCESS),
         Command::Status => runtime.block_on(status(config)).map(|()| ExitCode::SUCCESS),
         Command::Doctor => runtime.block_on(doctor::run(&config)),
+        Command::Profile { command } => runtime
+            .block_on(client::profile(&config, command))
+            .map(|()| ExitCode::SUCCESS),
         Command::Sources { command } => runtime
             .block_on(sources::run(config, command))
             .map(|()| ExitCode::SUCCESS),
