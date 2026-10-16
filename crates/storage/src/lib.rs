@@ -5,6 +5,7 @@
 //! non-blocking reads while the worker writes, without a connection pool. Every
 //! call runs on Tokio's blocking pool, never on the async worker thread.
 
+pub mod jobs;
 pub mod media;
 mod migrations;
 pub mod sources;

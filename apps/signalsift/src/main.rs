@@ -5,6 +5,7 @@ mod doctor;
 mod media;
 mod serve;
 mod sources;
+mod worker;
 
 use std::io::IsTerminal;
 use std::path::PathBuf;

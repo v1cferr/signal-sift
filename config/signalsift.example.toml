@@ -41,6 +41,9 @@ default_interval = 3600
 fetch_timeout = 30
 # Bytes; larger feeds are abandoned mid-download.
 max_feed_bytes = 10485760
+# Seconds. New videos published within this window are processed
+# automatically (captions, then local transcription if configured).
+backfill = 604800
 
 [asr]
 # Local speech recognition, used only when a video has no captions. Disabled

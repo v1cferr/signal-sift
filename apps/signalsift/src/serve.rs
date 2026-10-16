@@ -1,11 +1,16 @@
 //! The long-running daemon.
 
+use std::sync::Arc;
+
 use anyhow::Context;
 use signalsift_api::AppState;
 use signalsift_core::Config;
 use signalsift_storage::Db;
+use signalsift_storage::jobs::WorkClass;
 use tokio::net::TcpListener;
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
+
+use crate::worker;
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
     let db_path = config.database_path()?;
@@ -19,13 +24,42 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let app = signalsift_api::router(AppState::new(db.clone(), profile_rx.clone()));
 
+    // Jobs left running by a crash or kill are queued again; every job kind
+    // resumes from its own checkpoint.
+    let requeued = db
+        .write(|c| signalsift_storage::jobs::requeue_interrupted(c))
+        .await?;
+    if requeued > 0 {
+        tracing::info!(requeued, "re-queued jobs interrupted by the previous run");
+    }
+
+    let shared = Arc::new(worker::Shared {
+        db: db.clone(),
+        config: config.clone(),
+        light_ready: Arc::new(Notify::new()),
+        heavy_ready: Arc::new(Notify::new()),
+        profile: profile_rx.clone(),
+        shutdown: shutdown_rx.clone(),
+    });
+    let mut background = vec![tokio::spawn(worker::run(
+        Arc::clone(&shared),
+        WorkClass::Light,
+    ))];
+    for _ in 0..config.runtime.heavy_concurrency {
+        background.push(tokio::spawn(worker::run(
+            Arc::clone(&shared),
+            WorkClass::Heavy,
+        )));
+    }
     let fetcher = crate::sources::fetcher(&config)?;
-    let collector = tokio::spawn(crate::collect::run_loop(
+    background.push(tokio::spawn(crate::collect::run_loop(
         db,
         fetcher,
+        config.collection.backfill.as_millis() as i64,
+        Arc::clone(&shared.light_ready),
         profile_rx,
         shutdown_rx,
-    ));
+    )));
 
     let listener = TcpListener::bind(config.server.listen)
         .await
@@ -42,17 +76,25 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .await
         .context("HTTP server")?;
 
-    // Stop background work; a poll in flight gets the grace period to finish.
+    // Stop background work. Heavy jobs see the shutdown through their cancel
+    // future, kill their child processes and leave partial checkpoints.
     let _ = shutdown_tx.send(true);
-    if tokio::time::timeout(config.runtime.shutdown_grace, collector)
+    let all = futures_join(background);
+    if tokio::time::timeout(config.runtime.shutdown_grace, all)
         .await
         .is_err()
     {
-        tracing::warn!("collector did not stop within the grace period");
+        tracing::warn!("background work did not stop within the grace period");
     }
 
     tracing::info!("signalsift stopped");
     Ok(())
+}
+
+async fn futures_join(handles: Vec<tokio::task::JoinHandle<()>>) {
+    for h in handles {
+        let _ = h.await;
+    }
 }
 
 /// Resolves on SIGINT or SIGTERM (what systemd sends on `stop`).

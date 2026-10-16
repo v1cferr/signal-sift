@@ -1,5 +1,6 @@
 //! Feed collection: one poll of one source, and the daemon's polling loop.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -8,10 +9,11 @@ use signalsift_core::Profile;
 use signalsift_core::profile::WorkClass;
 use signalsift_ingestion::feed::{self, Entry};
 use signalsift_ingestion::{Fetched, Fetcher, Validators, schedule};
+use signalsift_storage::jobs::{self, WorkClass as JobClass};
 use signalsift_storage::media::NewItem;
 use signalsift_storage::sources::{self as repo, CachedValidators, FeedEntry, SourceRow};
 use signalsift_storage::{Db, now_ms};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 use url::Url;
 
 #[derive(Debug, Serialize)]
@@ -34,6 +36,7 @@ pub async fn poll_source(
     db: &Db,
     fetcher: &Fetcher,
     source: &SourceRow,
+    backfill_ms: i64,
 ) -> anyhow::Result<PollReport> {
     let started = std::time::Instant::now();
     let url = Url::parse(&source.url).context("stored source URL is invalid")?;
@@ -86,6 +89,7 @@ pub async fn poll_source(
                 let created = db
                     .write(move |c| {
                         let created = repo::insert_feed_entries(c, id, &entries)?;
+                        enqueue_media_jobs(c, &entries, &created, backfill_ms)?;
                         repo::store_http_validators(
                             c,
                             &key,
@@ -128,6 +132,36 @@ pub async fn poll_source(
     Ok(report)
 }
 
+/// Queues a caption job for each new, recent video. The job decides later
+/// whether local transcription is needed.
+fn enqueue_media_jobs(
+    c: &signalsift_storage::rusqlite::Connection,
+    entries: &[FeedEntry],
+    created: &[(i64, usize)],
+    backfill_ms: i64,
+) -> signalsift_storage::Result<()> {
+    let cutoff = now_ms() - backfill_ms;
+    for &(item_id, index) in created {
+        let item = &entries[index].item;
+        let (Some(video_id), "video") = (item.external_id.as_deref(), item.kind) else {
+            continue;
+        };
+        if item.published_at.is_some_and(|p| p < cutoff) {
+            continue;
+        }
+        let payload = serde_json::json!({ "video_id": video_id, "item_id": item_id }).to_string();
+        jobs::enqueue(
+            c,
+            crate::worker::CAPTIONS,
+            &format!("captions:{video_id}"),
+            JobClass::Light,
+            &payload,
+            0,
+        )?;
+    }
+    Ok(())
+}
+
 fn to_feed_entry(e: Entry) -> FeedEntry {
     FeedEntry {
         links: e.links.iter().map(Url::to_string).collect(),
@@ -155,6 +189,8 @@ const MAX_SLEEP: Duration = Duration::from_secs(15 * 60);
 pub async fn run_loop(
     db: Db,
     fetcher: Fetcher,
+    backfill_ms: i64,
+    work_ready: Arc<Notify>,
     mut profile: watch::Receiver<Profile>,
     mut shutdown: watch::Receiver<bool>,
 ) {
@@ -172,16 +208,23 @@ pub async fn run_loop(
                         {
                             break;
                         }
-                        match poll_source(&db, &fetcher, &source).await {
-                            Ok(r) => tracing::info!(
-                                source = r.source_id,
-                                outcome = r.outcome,
-                                new_items = r.new_items,
-                                bytes = r.bytes,
-                                wall_ms = r.wall_ms,
-                                error = r.error.as_deref().unwrap_or(""),
-                                "polled"
-                            ),
+                        match poll_source(&db, &fetcher, &source, backfill_ms).await {
+                            Ok(r) => {
+                                if r.new_items > 0 {
+                                    // notify_one stores a permit if the worker is busy, so the
+                                    // wakeup cannot be lost.
+                                    work_ready.notify_one();
+                                }
+                                tracing::info!(
+                                    source = r.source_id,
+                                    outcome = r.outcome,
+                                    new_items = r.new_items,
+                                    bytes = r.bytes,
+                                    wall_ms = r.wall_ms,
+                                    error = r.error.as_deref().unwrap_or(""),
+                                    "polled"
+                                )
+                            }
                             Err(e) => tracing::error!(source = source.id, "poll failed: {e:#}"),
                         }
                     }

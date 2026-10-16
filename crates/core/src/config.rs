@@ -84,6 +84,12 @@ pub struct CollectionConfig {
     pub fetch_timeout: Duration,
     /// Feeds larger than this are abandoned mid-download.
     pub max_feed_bytes: u64,
+    /// New videos published within this window get captions (and, if
+    /// needed, transcription) queued automatically. Older ones are stored but
+    /// not processed, so a channel's first poll does not transcribe its whole
+    /// back catalogue.
+    #[serde(with = "secs")]
+    pub backfill: Duration,
 }
 
 impl Default for CollectionConfig {
@@ -92,6 +98,7 @@ impl Default for CollectionConfig {
             default_interval: Duration::from_secs(3600),
             fetch_timeout: Duration::from_secs(30),
             max_feed_bytes: 10 * 1024 * 1024,
+            backfill: Duration::from_secs(7 * 24 * 3600),
         }
     }
 }

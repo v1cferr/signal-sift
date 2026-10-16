@@ -193,20 +193,20 @@ pub struct FeedEntry {
 
 /// Stores feed entries in one transaction. Existing items (same canonical URL
 /// or same platform id) are left untouched, so re-polling a feed is
-/// idempotent. Returns the ids of newly created items.
+/// idempotent. Returns `(item id, index into entries)` for each new item.
 pub fn insert_feed_entries(
     conn: &mut Connection,
     source_id: i64,
     entries: &[FeedEntry],
-) -> Result<Vec<i64>> {
+) -> Result<Vec<(i64, usize)>> {
     let tx = conn.transaction()?;
     let mut created = Vec::new();
-    for e in entries {
+    for (index, e) in entries.iter().enumerate() {
         if let Some(id) = upsert_item_if_new(&tx, Some(source_id), &e.item)? {
             let refs: Vec<(String, Option<i64>)> =
                 e.links.iter().map(|u| (u.clone(), None)).collect();
             crate::media::add_references(&tx, id, "article", &refs)?;
-            created.push(id);
+            created.push((id, index));
         }
     }
     tx.commit()?;

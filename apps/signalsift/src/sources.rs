@@ -108,7 +108,8 @@ pub async fn run(config: Config, cmd: SourcesCommand) -> anyhow::Result<()> {
             }
             let mut reports = Vec::new();
             for s in targets {
-                reports.push(collect::poll_source(&db, &fetcher, &s).await?);
+                let backfill = config.collection.backfill.as_millis() as i64;
+                reports.push(collect::poll_source(&db, &fetcher, &s, backfill).await?);
             }
             println!("{}", serde_json::to_string_pretty(&reports)?);
         }

@@ -96,14 +96,19 @@ struct Report {
     invocations: Vec<Invocation>,
 }
 
-async fn ingest(
-    config: &Config,
-    db: &Db,
-    input: &str,
-    asr: AsrMode,
-    language: Option<&str>,
-) -> anyhow::Result<Report> {
-    let started = Instant::now();
+/// Metadata fetched, limits checked, item and description links stored.
+pub struct Prepared {
+    pub id: String,
+    pub item_id: i64,
+    pub info: VideoInfo,
+    pub references: usize,
+    pub invocations: Vec<Invocation>,
+    dir: PathBuf,
+    info_path: PathBuf,
+    ytdlp: YtDlp,
+}
+
+pub async fn prepare(config: &Config, db: &Db, input: &str) -> anyhow::Result<Prepared> {
     let id = youtube::video_id(input).context("not a YouTube video URL or id")?;
     let dir = config.cache_dir()?.join("media").join(&id);
     let ytdlp = YtDlp {
@@ -113,14 +118,11 @@ async fn ingest(
             max_stdout: config.media.max_output_bytes,
         },
     };
-    let mut invocations = Vec::new();
-
     let info_path = dir.join("info.json");
     let (info, inv) = ytdlp
         .probe(&id, &info_path)
         .await
         .context("fetching video metadata")?;
-    invocations.push(inv);
     if info.is_live_now() {
         bail!("{id} is live or upcoming; ingest it after the broadcast ends");
     }
@@ -133,65 +135,118 @@ async fn ingest(
             config.media.max_duration.as_secs()
         );
     }
-
     let item_id = store_item(db, &info).await?;
     let references = store_description_links(db, item_id, &info).await?;
     tracing::info!(item_id, video = %id, title = %info.title, "item stored");
+    Ok(Prepared {
+        id,
+        item_id,
+        info,
+        references,
+        invocations: vec![inv],
+        dir,
+        info_path,
+        ytdlp,
+    })
+}
 
-    let track = youtube::choose_track(&info, &config.media.subtitle_languages);
-    let (origin, transcript_id) = match (track, asr) {
-        (Some(track), AsrMode::Auto | AsrMode::Never) => {
-            tracing::info!(key = %track.key, origin = track.origin.as_str(), "using captions");
-            let (path, inv) = ytdlp
-                .download_subtitles(&info_path, &track, &dir.join("subtitles"))
-                .await
-                .context("downloading captions")?;
-            invocations.push(inv);
-            let bytes = read_capped(&path, config.media.max_output_bytes).await?;
-            let cues = normalize(json3::parse(&bytes)?);
-            let _ = tokio::fs::remove_file(&path).await;
-            let engine = format!("youtube {} via yt-dlp", track.origin.as_str());
-            let tid = store_full_transcript(
-                db,
-                item_id,
-                track.origin,
-                &track.language,
-                &engine,
-                &info,
-                cues,
-            )
-            .await?;
-            (track.origin.as_str().to_owned(), tid)
+/// Stores the best caption track. `None` when the video has no usable one.
+pub async fn captions_step(
+    config: &Config,
+    db: &Db,
+    p: &mut Prepared,
+) -> anyhow::Result<Option<i64>> {
+    let Some(track) = youtube::choose_track(&p.info, &config.media.subtitle_languages) else {
+        return Ok(None);
+    };
+    tracing::info!(key = %track.key, origin = track.origin.as_str(), "using captions");
+    let (path, inv) = p
+        .ytdlp
+        .download_subtitles(&p.info_path, &track, &p.dir.join("subtitles"))
+        .await
+        .context("downloading captions")?;
+    p.invocations.push(inv);
+    let bytes = read_capped(&path, config.media.max_output_bytes).await?;
+    let cues = normalize(json3::parse(&bytes)?);
+    let _ = tokio::fs::remove_file(&path).await;
+    let engine = format!("youtube {} via yt-dlp", track.origin.as_str());
+    let tid = store_full_transcript(
+        db,
+        p.item_id,
+        track.origin,
+        &track.language,
+        &engine,
+        &p.info,
+        cues,
+    )
+    .await?;
+    Ok(Some(tid))
+}
+
+/// Local transcription, resumable from the last committed chunk. When
+/// `cancel` resolves, the running chunk's processes are killed and the
+/// transcript is left partial. Returns the transcript id; its status says
+/// whether it is complete.
+pub async fn asr_step(
+    config: &Config,
+    db: &Db,
+    p: &mut Prepared,
+    language: Option<&str>,
+    cancel: impl std::future::Future<Output = ()>,
+) -> anyhow::Result<i64> {
+    let lang = language
+        .map(str::to_owned)
+        .or_else(|| p.info.language.clone())
+        .unwrap_or_else(|| config.asr.language.clone());
+    let (ytdlp, info, info_path, dir, item_id) =
+        (&p.ytdlp, &p.info, &p.info_path, &p.dir, p.item_id);
+    transcribe(
+        config,
+        db,
+        ytdlp,
+        info,
+        info_path,
+        dir,
+        item_id,
+        &lang,
+        &mut p.invocations,
+        cancel,
+    )
+    .await
+}
+
+pub async fn segments_step(db: &Db, p: &Prepared, transcript_id: i64) -> anyhow::Result<usize> {
+    build_segments(db, p.item_id, transcript_id, &p.info).await
+}
+
+async fn ingest(
+    config: &Config,
+    db: &Db,
+    input: &str,
+    asr: AsrMode,
+    language: Option<&str>,
+) -> anyhow::Result<Report> {
+    let started = Instant::now();
+    let mut p = prepare(config, db, input).await?;
+    let captions = match asr {
+        AsrMode::Force => None,
+        AsrMode::Auto | AsrMode::Never => captions_step(config, db, &mut p).await?,
+    };
+    let transcript_id = match (captions, asr) {
+        (Some(tid), _) => tid,
+        (None, AsrMode::Never) => {
+            bail!("{} has no usable captions and --asr never was given", p.id)
         }
-        (None, AsrMode::Never) => bail!("{id} has no usable captions and --asr never was given"),
-        (_, AsrMode::Auto | AsrMode::Force) => {
-            let lang = language
-                .map(str::to_owned)
-                .or_else(|| info.language.clone())
-                .unwrap_or_else(|| config.asr.language.clone());
-            let tid = transcribe(
-                config,
-                db,
-                &ytdlp,
-                &info,
-                &info_path,
-                &dir,
-                item_id,
-                &lang,
-                &mut invocations,
-            )
-            .await?;
-            ("asr".to_owned(), tid)
-        }
+        (None, _) => asr_step(config, db, &mut p, language, interrupted()).await?,
     };
 
-    let segments = build_segments(db, item_id, transcript_id, &info).await?;
+    let segments = segments_step(db, &p, transcript_id).await?;
     let state = db
         .read(move |c| Ok(c.query_row(
-            "SELECT status, covered_ms, duration_ms, (SELECT count(*) FROM transcript_cues WHERE transcript_id = ?1)
+            "SELECT status, covered_ms, duration_ms, origin, (SELECT count(*) FROM transcript_cues WHERE transcript_id = ?1)
              FROM transcripts WHERE id = ?1",
             [transcript_id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<i64>>(2)?, r.get::<_, i64>(3)?)),
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<i64>>(2)?, r.get::<_, String>(3)?, r.get::<_, i64>(4)?)),
         )?))
         .await?;
     let coverage = state
@@ -200,18 +255,18 @@ async fn ingest(
         .map_or(1.0, |d| (state.1 as f64 / d as f64).min(1.0));
 
     Ok(Report {
-        item_id,
-        video_id: id,
-        title: info.title.clone(),
-        duration_ms: info.duration_ms(),
-        transcript_origin: origin,
+        item_id: p.item_id,
+        video_id: p.id.clone(),
+        title: p.info.title.clone(),
+        duration_ms: p.info.duration_ms(),
+        transcript_origin: state.3,
         transcript_status: state.0,
         coverage,
-        cues: state.3 as usize,
+        cues: state.4 as usize,
         segments,
-        references,
+        references: p.references,
         wall_ms: started.elapsed().as_millis() as u64,
-        invocations,
+        invocations: p.invocations,
     })
 }
 
@@ -293,6 +348,7 @@ async fn transcribe(
     item_id: i64,
     language: &str,
     invocations: &mut Vec<Invocation>,
+    cancel: impl std::future::Future<Output = ()>,
 ) -> anyhow::Result<i64> {
     let model = config.asr.model.clone().context(
         "no captions available and no speech model configured; set asr.model \
@@ -387,12 +443,12 @@ async fn transcribe(
 
     let outcome = tokio::select! {
         r = work => r.map(|()| true),
-        () = interrupted() => Ok(false),
+        () = cancel => Ok(false),
     };
     let final_status = match &outcome {
         Ok(true) => "complete",
         Ok(false) => {
-            tracing::warn!("interrupted; transcript kept as partial and resumable");
+            tracing::warn!("cancelled; transcript kept as partial and resumable");
             "partial"
         }
         Err(e) => {
