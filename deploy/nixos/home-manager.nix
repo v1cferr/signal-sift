@@ -19,6 +19,7 @@ self:
 
 let
   cfg = config.services.signalsift;
+  own = self.packages.${pkgs.stdenv.hostPlatform.system};
   toml = pkgs.formats.toml { };
   configFile = toml.generate "signalsift.toml" cfg.settings;
 in
@@ -28,7 +29,7 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = self.packages.${pkgs.stdenv.hostPlatform.system}.signalsift;
+      default = own.signalsift;
       defaultText = lib.literalExpression "signal-sift.packages.\${system}.signalsift";
       description = "SignalSift package to run.";
     };
@@ -54,21 +55,26 @@ in
       default = [
         pkgs.yt-dlp
         pkgs.ffmpeg-headless
+        own.whisper-cpp-vulkan
+        own.llama-cpp-vulkan
       ];
-      defaultText = lib.literalExpression "[ pkgs.yt-dlp pkgs.ffmpeg-headless ]";
+      defaultText = lib.literalExpression "[ pkgs.yt-dlp pkgs.ffmpeg-headless signal-sift.packages.\${system}.whisper-cpp-vulkan signal-sift.packages.\${system}.llama-cpp-vulkan ]";
       description = ''
-        Tools put on the service's PATH. Add whisper-cpp or llama-cpp here
-        (with `vulkanSupport = true`) to enable local transcription and inference.
+        Tools put on the service's PATH. The inference engines default to
+        SignalSift's own Vulkan builds (the benchmarked versions); with
+        runtime.require_gpu (the default) they must run on the GPU or the
+        job fails instead of falling back to the CPU.
       '';
     };
 
     memoryMax = lib.mkOption {
       type = lib.types.str;
-      default = "6G";
+      default = "10G";
       description = ''
         Hard memory limit for the service cgroup. It covers child processes
-        too, so it must leave room for a speech or language model while one
-        runs; the daemon alone stays far below it.
+        too: llama-server with gemma-4-E4B peaked at ~7 GiB RSS (most of it
+        the memory-mapped model file), whisper.cpp at ~300 MiB. The daemon
+        alone stays around 10-20 MiB.
       '';
     };
   };

@@ -23,8 +23,9 @@ Environment=MALLOC_ARENA_MAX=2
 Nice=10
 CPUWeight=20
 IOWeight=20
-# Covers child processes (whisper.cpp, llama.cpp) as well as the daemon.
-MemoryMax=6G
+# Covers child processes too: llama-server peaks at ~7 GiB RSS with the
+# default model (mostly the mapped model file).
+MemoryMax=10G
 
 NoNewPrivileges=yes
 LockPersonality=yes

@@ -31,6 +31,12 @@
       packages = forAllSystems (pkgs: {
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.signalsift;
         signalsift = pkgs.callPackage ./deploy/nixos/package.nix { };
+        # The inference engines with the Vulkan backend, from THIS flake's
+        # pinned nixpkgs: the exact versions benchmarked in docs/benchmarks/.
+        # The Home Manager module puts them on the service's PATH, so a host
+        # on another channel still runs the measured builds (ADR 0011).
+        whisper-cpp-vulkan = pkgs.whisper-cpp.override { vulkanSupport = true; };
+        llama-cpp-vulkan = pkgs.llama-cpp.override { vulkanSupport = true; };
       });
 
       # `nix flake check` builds the package, which runs the Rust test suite
@@ -81,8 +87,8 @@
               rustTools
               ++ mediaTools
               ++ [
-                (pkgs.whisper-cpp.override { vulkanSupport = true; })
-                (pkgs.llama-cpp.override { vulkanSupport = true; })
+                self.packages.${pkgs.stdenv.hostPlatform.system}.whisper-cpp-vulkan
+                self.packages.${pkgs.stdenv.hostPlatform.system}.llama-cpp-vulkan
                 pkgs.vulkan-tools
               ];
             RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
