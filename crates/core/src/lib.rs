@@ -8,6 +8,7 @@ pub mod config;
 pub mod links;
 pub mod profile;
 pub mod timestamp;
+pub mod youtube;
 
 pub use config::Config;
 pub use profile::Profile;

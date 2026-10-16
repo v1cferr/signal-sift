@@ -12,44 +12,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use signalsift_core::timestamp::is_youtube_video_id;
-use url::Url;
 
 use crate::subprocess::{self, Invocation, Limits, SubprocessError};
 
-/// Extracts the video id from a URL or bare id. Only YouTube hosts are
-/// accepted; anything else returns `None`.
-pub fn video_id(input: &str) -> Option<String> {
-    let input = input.trim();
-    if is_youtube_video_id(input) {
-        return Some(input.to_owned());
-    }
-    let url = Url::parse(input).ok()?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return None;
-    }
-    let host = url
-        .host_str()?
-        .trim_start_matches("www.")
-        .trim_start_matches("m.");
-    let id = match host {
-        "youtu.be" => url.path_segments()?.next()?.to_owned(),
-        "youtube.com" | "music.youtube.com" => {
-            let mut segs = url.path_segments()?;
-            match segs.next()? {
-                "watch" => url.query_pairs().find(|(k, _)| k == "v")?.1.into_owned(),
-                "shorts" | "live" | "embed" | "v" => segs.next()?.to_owned(),
-                _ => return None,
-            }
-        }
-        _ => return None,
-    };
-    is_youtube_video_id(&id).then_some(id)
-}
-
-pub fn watch_url(id: &str) -> String {
-    format!("https://www.youtube.com/watch?v={id}")
-}
+pub use signalsift_core::youtube::{video_id, watch_url};
 
 /// The subset of yt-dlp's info JSON we use. Unknown fields are ignored; the
 /// full JSON is kept on disk next to the media for reuse with `--load-info-json`.
@@ -319,35 +285,6 @@ fn regex_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn extracts_ids_from_common_url_shapes() {
-        for input in [
-            "N3eU-2VIByQ",
-            "https://youtu.be/N3eU-2VIByQ",
-            "https://youtu.be/N3eU-2VIByQ?si=tracking",
-            "https://www.youtube.com/watch?v=N3eU-2VIByQ&t=120s",
-            "https://m.youtube.com/watch?v=N3eU-2VIByQ",
-            "https://www.youtube.com/live/N3eU-2VIByQ",
-            "https://www.youtube.com/shorts/N3eU-2VIByQ",
-        ] {
-            assert_eq!(video_id(input).as_deref(), Some("N3eU-2VIByQ"), "{input}");
-        }
-    }
-
-    #[test]
-    fn rejects_other_hosts_and_injection_attempts() {
-        for input in [
-            "https://evil.example/watch?v=N3eU-2VIByQ",
-            "http://169.254.169.254/latest/meta-data",
-            "--exec=rm -rf ~",
-            "file:///etc/passwd",
-            "https://www.youtube.com/watch?v=N3eU-2VIByQ%26list%3Dx",
-            "https://www.youtube.com/@GutoGalego",
-        ] {
-            assert_eq!(video_id(input), None, "{input}");
-        }
-    }
 
     fn info(subs: &[&str], auto: &[&str], language: Option<&str>) -> VideoInfo {
         let map = |keys: &[&str]| {

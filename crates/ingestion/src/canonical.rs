@@ -14,7 +14,7 @@
 //! The path is left alone: a trailing slash or letter case can be meaningful
 //! on some servers, and a false merge is worse than a missed one.
 
-use signalsift_core::timestamp::is_youtube_video_id;
+use signalsift_core::youtube::video_id_from_url;
 use url::Url;
 
 const TRACKING_EXACT: &[&str] = &[
@@ -23,7 +23,7 @@ const TRACKING_EXACT: &[&str] = &[
 ];
 
 pub fn canonicalize(input: &Url) -> Url {
-    if let Some(id) = youtube_video_id(input) {
+    if let Some(id) = video_id_from_url(input) {
         return Url::parse(&format!("https://www.youtube.com/watch?v={id}")).expect("static URL");
     }
     let mut url = input.clone();
@@ -45,26 +45,6 @@ pub fn canonicalize(input: &Url) -> Url {
         url.query_pairs_mut().clear().extend_pairs(kept);
     }
     url
-}
-
-fn youtube_video_id(url: &Url) -> Option<String> {
-    let host = url
-        .host_str()?
-        .trim_start_matches("www.")
-        .trim_start_matches("m.");
-    let id = match host {
-        "youtu.be" => url.path_segments()?.next()?.to_owned(),
-        "youtube.com" => {
-            let mut segs = url.path_segments()?;
-            match segs.next()? {
-                "watch" => url.query_pairs().find(|(k, _)| k == "v")?.1.into_owned(),
-                "shorts" | "live" => segs.next()?.to_owned(),
-                _ => return None,
-            }
-        }
-        _ => return None,
-    };
-    is_youtube_video_id(&id).then_some(id)
 }
 
 #[cfg(test)]
