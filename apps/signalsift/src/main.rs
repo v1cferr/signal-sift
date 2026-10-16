@@ -1,5 +1,6 @@
 //! `signalsift` — daemon and command-line interface.
 
+mod analysis;
 mod client;
 mod collect;
 mod doctor;
@@ -50,6 +51,11 @@ enum Command {
         #[command(subcommand)]
         command: sources::SourcesCommand,
     },
+    /// Score an item's segments and summarize it with the local LLM.
+    Analyze {
+        /// Item id or YouTube video id.
+        item: String,
+    },
     /// Video and podcast pipeline: captions, local transcription, segments.
     Media {
         #[command(subcommand)]
@@ -90,6 +96,9 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             .map(|()| ExitCode::SUCCESS),
         Command::Sources { command } => runtime
             .block_on(sources::run(config, command))
+            .map(|()| ExitCode::SUCCESS),
+        Command::Analyze { item } => runtime
+            .block_on(analysis::run_cli(config, item))
             .map(|()| ExitCode::SUCCESS),
         Command::Media { command } => runtime
             .block_on(media::run(config, command))

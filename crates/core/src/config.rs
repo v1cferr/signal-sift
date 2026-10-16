@@ -23,6 +23,7 @@ pub struct Config {
     pub media: MediaConfig,
     pub asr: AsrConfig,
     pub collection: CollectionConfig,
+    pub analysis: AnalysisConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -100,6 +101,50 @@ impl Default for CollectionConfig {
             max_feed_bytes: 10 * 1024 * 1024,
             backfill: Duration::from_secs(7 * 24 * 3600),
         }
+    }
+}
+
+/// Local LLM analysis (summaries, topics, relevance). Disabled until a model
+/// is configured: models are never downloaded automatically.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AnalysisConfig {
+    pub llama_server: PathBuf,
+    /// GGUF model file.
+    pub model: Option<PathBuf>,
+    /// Interest profile. Defaults to `$XDG_CONFIG_HOME/signalsift/interests.toml`.
+    pub interests_file: Option<PathBuf>,
+    /// Output language, e.g. "pt-BR". Unset: the language of the content.
+    pub language: Option<String>,
+    /// Context window given to llama-server, in tokens.
+    pub context: u32,
+    /// Layers offloaded to the GPU; 0 runs on the CPU only.
+    pub gpu_layers: u32,
+    pub threads: u32,
+    /// Articles are split into parts of at most this many characters.
+    pub article_chunk_chars: usize,
+}
+
+impl Default for AnalysisConfig {
+    fn default() -> Self {
+        Self {
+            llama_server: "llama-server".into(),
+            model: None,
+            interests_file: None,
+            language: None,
+            context: 8192,
+            gpu_layers: 999,
+            threads: 4,
+            article_chunk_chars: 6000,
+        }
+    }
+}
+
+impl AnalysisConfig {
+    pub fn interests_path(&self) -> Option<PathBuf> {
+        self.interests_file
+            .clone()
+            .or_else(|| xdg_dir("XDG_CONFIG_HOME", ".config").map(|d| d.join("interests.toml")))
     }
 }
 

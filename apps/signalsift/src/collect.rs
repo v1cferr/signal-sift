@@ -27,6 +27,9 @@ pub struct PollReport {
     pub bytes: usize,
     pub wall_ms: u64,
     pub error: Option<String>,
+    /// Jobs queued for new items (light: captions; heavy: analysis).
+    pub queued_light: usize,
+    pub queued_heavy: usize,
 }
 
 /// Polls one source and records the outcome and next poll time. Errors are
@@ -36,7 +39,7 @@ pub async fn poll_source(
     db: &Db,
     fetcher: &Fetcher,
     source: &SourceRow,
-    backfill_ms: i64,
+    policy: EnqueuePolicy,
 ) -> anyhow::Result<PollReport> {
     let started = std::time::Instant::now();
     let url = Url::parse(&source.url).context("stored source URL is invalid")?;
@@ -57,6 +60,8 @@ pub async fn poll_source(
         bytes: 0,
         wall_ms: 0,
         error: None,
+        queued_light: 0,
+        queued_heavy: 0,
     };
 
     let result: anyhow::Result<()> = async {
@@ -89,7 +94,7 @@ pub async fn poll_source(
                 let created = db
                     .write(move |c| {
                         let created = repo::insert_feed_entries(c, id, &entries)?;
-                        enqueue_media_jobs(c, &entries, &created, backfill_ms)?;
+                        let queued = enqueue_item_jobs(c, &entries, &created, policy)?;
                         repo::store_http_validators(
                             c,
                             &key,
@@ -105,9 +110,12 @@ pub async fn poll_source(
                             schedule::after_success(now_ms(), interval, id),
                             title.as_deref(),
                         )?;
-                        Ok(created)
+                        Ok((created, queued))
                     })
                     .await?;
+                let (created, queued) = created;
+                report.queued_light = queued.light;
+                report.queued_heavy = queued.heavy;
                 report.new_items = created.len();
                 report.outcome = "updated";
             }
@@ -132,34 +140,65 @@ pub async fn poll_source(
     Ok(report)
 }
 
-/// Queues a caption job for each new, recent video. The job decides later
-/// whether local transcription is needed.
-fn enqueue_media_jobs(
+/// What a poll queues for the new items it stores.
+#[derive(Clone, Copy)]
+pub struct EnqueuePolicy {
+    /// Only items published within this window get processed.
+    pub backfill_ms: i64,
+    /// Whether LLM analysis is configured (articles are queued for it).
+    pub analysis: bool,
+}
+
+/// Counts of jobs queued by a poll, so the caller wakes the right workers.
+#[derive(Default)]
+struct Queued {
+    light: usize,
+    heavy: usize,
+}
+
+/// Queues work for new, recent items: a caption job per video (it decides
+/// later whether local transcription is needed) and, when analysis is
+/// configured, an analysis job per article.
+fn enqueue_item_jobs(
     c: &signalsift_storage::rusqlite::Connection,
     entries: &[FeedEntry],
     created: &[(i64, usize)],
-    backfill_ms: i64,
-) -> signalsift_storage::Result<()> {
-    let cutoff = now_ms() - backfill_ms;
+    policy: EnqueuePolicy,
+) -> signalsift_storage::Result<Queued> {
+    let cutoff = now_ms() - policy.backfill_ms;
+    let mut queued = Queued::default();
     for &(item_id, index) in created {
         let item = &entries[index].item;
-        let (Some(video_id), "video") = (item.external_id.as_deref(), item.kind) else {
-            continue;
-        };
         if item.published_at.is_some_and(|p| p < cutoff) {
             continue;
         }
-        let payload = serde_json::json!({ "video_id": video_id, "item_id": item_id }).to_string();
-        jobs::enqueue(
-            c,
-            crate::worker::CAPTIONS,
-            &format!("captions:{video_id}"),
-            JobClass::Light,
-            &payload,
-            0,
-        )?;
+        let class = match (item.kind, item.external_id.as_deref()) {
+            ("video", Some(video_id)) => {
+                let payload =
+                    serde_json::json!({ "video_id": video_id, "item_id": item_id }).to_string();
+                let key = format!("captions:{video_id}");
+                jobs::enqueue(
+                    c,
+                    crate::worker::CAPTIONS,
+                    &key,
+                    JobClass::Light,
+                    &payload,
+                    0,
+                )?
+                .map(|_| JobClass::Light)
+            }
+            ("article", _) if policy.analysis && item.content_text.is_some() => {
+                jobs::enqueue_analysis(c, item_id, "article")?.map(|_| JobClass::Heavy)
+            }
+            _ => None,
+        };
+        match class {
+            Some(JobClass::Light) => queued.light += 1,
+            Some(JobClass::Heavy) => queued.heavy += 1,
+            None => {}
+        }
     }
-    Ok(())
+    Ok(queued)
 }
 
 fn to_feed_entry(e: Entry) -> FeedEntry {
@@ -189,8 +228,9 @@ const MAX_SLEEP: Duration = Duration::from_secs(15 * 60);
 pub async fn run_loop(
     db: Db,
     fetcher: Fetcher,
-    backfill_ms: i64,
-    work_ready: Arc<Notify>,
+    policy: EnqueuePolicy,
+    light_ready: Arc<Notify>,
+    heavy_ready: Arc<Notify>,
     mut profile: watch::Receiver<Profile>,
     mut shutdown: watch::Receiver<bool>,
 ) {
@@ -208,12 +248,15 @@ pub async fn run_loop(
                         {
                             break;
                         }
-                        match poll_source(&db, &fetcher, &source, backfill_ms).await {
+                        match poll_source(&db, &fetcher, &source, policy).await {
                             Ok(r) => {
-                                if r.new_items > 0 {
-                                    // notify_one stores a permit if the worker is busy, so the
-                                    // wakeup cannot be lost.
-                                    work_ready.notify_one();
+                                // notify_one stores a permit if the worker is
+                                // busy, so the wakeup cannot be lost.
+                                if r.queued_light > 0 {
+                                    light_ready.notify_one();
+                                }
+                                if r.queued_heavy > 0 {
+                                    heavy_ready.notify_one();
                                 }
                                 tracing::info!(
                                     source = r.source_id,

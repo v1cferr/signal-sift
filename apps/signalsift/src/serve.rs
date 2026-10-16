@@ -64,11 +64,16 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         )));
     }
     let fetcher = crate::sources::fetcher(&config)?;
+    let policy = crate::collect::EnqueuePolicy {
+        backfill_ms: config.collection.backfill.as_millis() as i64,
+        analysis: config.analysis.model.is_some(),
+    };
     background.push(tokio::spawn(crate::collect::run_loop(
         db,
         fetcher,
-        config.collection.backfill.as_millis() as i64,
+        policy,
         Arc::clone(&shared.light_ready),
+        Arc::clone(&shared.heavy_ready),
         profile_rx,
         shutdown_rx,
     )));

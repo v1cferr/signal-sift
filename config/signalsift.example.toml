@@ -60,3 +60,19 @@ use_gpu = true
 chunk = 600
 overlap = 30
 keep_audio = false
+
+[analysis]
+# Local LLM analysis. Disabled until `model` is set; SignalSift never
+# downloads models by itself. See docs/benchmarks/llm-arc-b580.md.
+llama_server = "llama-server"
+# model = "/home/me/.local/share/signalsift/models/gemma-4-12b-it-qat-q4_0.gguf"
+# Interest profile; defaults to ~/.config/signalsift/interests.toml.
+# Start from config/interests.example.toml.
+# interests_file = "/home/me/.config/signalsift/interests.toml"
+# Output language ("pt-BR", "en"...). Unset: same language as the content.
+# language = "pt-BR"
+context = 8192
+# Layers on the GPU; 0 = CPU only.
+gpu_layers = 999
+threads = 4
+article_chunk_chars = 6000

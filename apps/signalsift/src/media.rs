@@ -563,7 +563,7 @@ async fn read_capped(path: &PathBuf, limit: u64) -> anyhow::Result<Vec<u8>> {
 }
 
 /// Resolves on SIGINT or SIGTERM.
-async fn interrupted() {
+pub(crate) async fn interrupted() {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};

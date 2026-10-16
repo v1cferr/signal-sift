@@ -20,9 +20,13 @@ use signalsift_storage::jobs::{self, Job, WorkClass};
 use signalsift_storage::{Db, now_ms};
 use tokio::sync::{Notify, watch};
 
-use crate::media;
+use signalsift_analysis::llama::LlamaServer;
 
-pub use signalsift_storage::jobs::{MEDIA_ASR as ASR, MEDIA_CAPTIONS as CAPTIONS};
+use crate::{analysis, media};
+
+pub use signalsift_storage::jobs::{
+    ANALYSIS_ITEM as ANALYSIS, MEDIA_ASR as ASR, MEDIA_CAPTIONS as CAPTIONS,
+};
 
 /// Videos younger than this get a second chance at captions before local
 /// transcription: YouTube often adds automatic captions hours after upload,
@@ -71,9 +75,14 @@ pub async fn run(shared: Arc<Shared>, class: WorkClass) {
         WorkClass::Light => ProfileClass::LightCollection,
         WorkClass::Heavy => ProfileClass::Heavy,
     };
+    // The LLM server is kept across consecutive analysis jobs (loading a
+    // model takes seconds) and stopped as soon as this worker has nothing
+    // else to analyse, so no model stays resident while idle.
+    let mut llm: Option<LlamaServer> = None;
 
     loop {
         if *shutdown.borrow() {
+            stop_llm(&mut llm).await;
             return;
         }
         let allowed = profile.borrow_and_update().allows(profile_class);
@@ -84,10 +93,14 @@ pub async fn run(shared: Arc<Shared>, class: WorkClass) {
                 .await
             {
                 Ok(Some(job)) => {
-                    execute(&shared, job).await;
+                    // Transcription needs the GPU memory the LLM holds.
+                    if job.kind != ANALYSIS {
+                        stop_llm(&mut llm).await;
+                    }
+                    execute(&shared, job, &mut llm).await;
                     continue;
                 }
-                Ok(None) => {}
+                Ok(None) => stop_llm(&mut llm).await,
                 Err(e) => tracing::error!("cannot claim a job: {e:#}"),
             }
         }
@@ -100,6 +113,7 @@ pub async fn run(shared: Arc<Shared>, class: WorkClass) {
                 _ => MAX_IDLE_SLEEP,
             }
         } else {
+            stop_llm(&mut llm).await;
             MAX_IDLE_SLEEP
         };
         tokio::select! {
@@ -111,13 +125,25 @@ pub async fn run(shared: Arc<Shared>, class: WorkClass) {
     }
 }
 
-async fn execute(shared: &Shared, job: Job) {
+async fn stop_llm(llm: &mut Option<LlamaServer>) {
+    if let Some(server) = llm.take() {
+        let usage = server.stop().await;
+        tracing::info!(
+            peak_rss_mib = usage.peak_rss_kib / 1024,
+            peak_vram_mib = usage.peak_vram_kib / 1024,
+            "language model unloaded"
+        );
+    }
+}
+
+async fn execute(shared: &Shared, job: Job, llm: &mut Option<LlamaServer>) {
     let id = job.id;
     tracing::info!(job = id, kind = %job.kind, attempt = job.attempts, "job started");
     let started = std::time::Instant::now();
     let result = match job.kind.as_str() {
         CAPTIONS => captions_job(shared, &job).await,
         ASR => asr_job(shared, &job).await,
+        ANALYSIS => analysis_job(shared, &job, llm).await,
         other => Err(anyhow::anyhow!("unknown job kind {other}")),
     };
     let elapsed_ms = started.elapsed().as_millis() as u64;
@@ -169,6 +195,7 @@ async fn captions_job(shared: &Shared, job: &Job) -> anyhow::Result<Outcome> {
     let mut p = media::prepare(&shared.config, &shared.db, &payload.video_id).await?;
     if let Some(tid) = media::captions_step(&shared.config, &shared.db, &mut p).await? {
         media::segments_step(&shared.db, &p, tid).await?;
+        queue_analysis(shared, p.item_id, tid).await?;
         return Ok(Outcome::Done);
     }
 
@@ -241,11 +268,56 @@ async fn asr_job(shared: &Shared, job: &Job) -> anyhow::Result<Outcome> {
             )
         })
         .await?;
-    Ok(if status == "complete" {
-        Outcome::Done
+    if status == "complete" {
+        queue_analysis(shared, p.item_id, tid).await?;
+        Ok(Outcome::Done)
     } else {
-        Outcome::Interrupted
-    })
+        Ok(Outcome::Interrupted)
+    }
+}
+
+/// Queues analysis of a complete transcript, if analysis is configured.
+async fn queue_analysis(shared: &Shared, item_id: i64, transcript_id: i64) -> anyhow::Result<()> {
+    if shared.config.analysis.model.is_none() {
+        return Ok(());
+    }
+    let version = format!("transcript-{transcript_id}");
+    let queued = shared
+        .db
+        .write(move |c| jobs::enqueue_analysis(c, item_id, &version))
+        .await?;
+    if queued.is_some() {
+        shared.heavy_ready.notify_one();
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct AnalysisPayload {
+    item_id: i64,
+}
+
+async fn analysis_job(
+    shared: &Shared,
+    job: &Job,
+    llm: &mut Option<LlamaServer>,
+) -> anyhow::Result<Outcome> {
+    let payload: AnalysisPayload =
+        serde_json::from_str(&job.payload_json).context("invalid payload")?;
+    let cancel = heavy_work_revoked(shared.profile.clone(), shared.shutdown.clone());
+    match analysis::analyze_item(&shared.config, &shared.db, llm, payload.item_id, cancel).await {
+        Ok(analysis::Outcome::Complete { .. }) => Ok(Outcome::Done),
+        Ok(analysis::Outcome::Interrupted) => {
+            // Heavy work was revoked: free the GPU now, not at the next loop.
+            stop_llm(llm).await;
+            Ok(Outcome::Interrupted)
+        }
+        Err(e) => {
+            // A crashed or wedged server must not be reused by the next job.
+            stop_llm(llm).await;
+            Err(e)
+        }
+    }
 }
 
 /// Resolves when heavy work is no longer allowed: the profile changed to one
