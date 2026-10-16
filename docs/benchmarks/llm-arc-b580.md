@@ -83,6 +83,29 @@ Both Gemma models score the labelled-irrelevant segments around 45, so the
 feed should rank by score rather than filter at 50; the thresholds in the
 API are a client choice.
 
+## End to end in the daemon (2026-10-16)
+
+`signalsift serve` with `analysis.model` set to gemma-4-E4B; both reference
+videos queued with `signalsift media queue`. The daemon ran captions → ASR
+(reusing the complete transcript) → analysis without intervention.
+
+| Check | Result |
+|-------|--------|
+| BZxHviFY_YY (4 segments) | analysed in 38.3 s, relevance 90, 0 rejected |
+| N3eU-2VIByQ (80 segments, 4h17m) | analysed in 576.9 s (7.2 s/segment), relevance 90, 0 rejected |
+| llama-server load | 3.3 s |
+| llama-server peak | 3 417 MiB VRAM, 7 150 MiB RSS (incl. mapped model) |
+| After the queue drained | model unloaded; 0 llama-server processes; daemon holds 0 DRM fds |
+| Daemon after the run | 10.9 MiB RSS (peak 13.9 MiB), 2 threads |
+| `/v1/feed` | BZxHviFY_YY → 3:39 (prompt injection, `&t=219s`); N3eU-2VIByQ → 9:06 (agents with web fetch and code execution) |
+
+**Calibration limit observed.** On the full podcast, 74 of 80 segments
+scored ≥ 50 and many tied at 85. Ranking still separates the labelled
+classes (AUC ~0.9), but the scale is coarse: among tied top segments the
+chosen `moment` is effectively the earliest. Next steps: a finer rubric or a
+second, comparative pass over the top segments of an item, evaluated on an
+owner-labelled set.
+
 ## Not measured yet
 
 - Summary faithfulness beyond the side-by-side reading above (needs a
