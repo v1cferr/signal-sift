@@ -8,6 +8,7 @@
 use serde::Serialize;
 use signalsift_core::timestamp::{format_hms, rfc3339, youtube_link};
 use signalsift_storage::Result;
+use signalsift_storage::analyses;
 use signalsift_storage::media::{self, TranscriptState};
 use signalsift_storage::rusqlite::{Connection, OptionalExtension, params};
 
@@ -23,6 +24,10 @@ pub struct ItemSummary {
     pub published_at: Option<String>,
     pub duration_ms: Option<i64>,
     pub transcript: Option<TranscriptView>,
+    /// Estimated relevance to the reader's interests (0-100), the maximum
+    /// over the item's segments. Absent until analysed. A preference
+    /// estimate, not a measure of accuracy or truth.
+    pub relevance: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -33,6 +38,42 @@ pub struct ItemDetail {
     pub description: Option<String>,
     pub segment_count: i64,
     pub references: Vec<ReferenceView>,
+    pub analysis: Option<AnalysisView>,
+}
+
+/// LLM output for an item or a segment. Generated text: useful, fallible,
+/// never a statement of fact.
+#[derive(Debug, Serialize)]
+pub struct AnalysisView {
+    pub summary: String,
+    pub topics: Vec<String>,
+    pub matched_interests: Vec<String>,
+    pub relevance: i64,
+    pub rationale: String,
+    pub applications: Vec<String>,
+    /// Tools, projects and documents explicitly named in the content.
+    pub mentions: Vec<String>,
+    pub model: String,
+    pub prompt_version: String,
+    pub analysed_at: String,
+}
+
+impl From<&analyses::AnalysisRow> for AnalysisView {
+    fn from(r: &analyses::AnalysisRow) -> Self {
+        let list = |s: &str| serde_json::from_str::<Vec<String>>(s).unwrap_or_default();
+        Self {
+            summary: r.summary.clone(),
+            topics: list(&r.topics_json),
+            matched_interests: list(&r.matched_interests_json),
+            relevance: r.relevance,
+            rationale: r.rationale.clone(),
+            applications: list(&r.applications_json),
+            mentions: list(&r.mentions_json),
+            model: r.model.clone(),
+            prompt_version: r.prompt_version.clone(),
+            analysed_at: rfc3339(r.created_at),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -71,6 +112,7 @@ pub struct SegmentView {
     pub text: String,
     /// Deep link to the moment the segment starts, when the platform has one.
     pub link: Option<String>,
+    pub analysis: Option<AnalysisView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -143,6 +185,7 @@ fn summary(conn: &Connection, row: &ItemRow) -> Result<ItemSummary> {
         published_at: row.published_at.map(rfc3339),
         duration_ms: row.duration_ms,
         transcript: media::best_transcript(conn, row.id)?.map(Into::into),
+        relevance: analyses::item_analysis(conn, row.id)?.map(|a| a.relevance),
     })
 }
 
@@ -200,6 +243,7 @@ pub fn item_detail(conn: &Connection, id: i64) -> Result<Option<ItemDetail>> {
         description: row.description,
         segment_count,
         references,
+        analysis: analyses::item_analysis(conn, id)?.as_ref().map(Into::into),
     }))
 }
 
@@ -216,9 +260,14 @@ pub fn item_segments(conn: &Connection, id: i64) -> Result<Option<Vec<SegmentVie
         return Ok(None);
     };
     let video_id = (kind == "video").then_some(external_id).flatten();
+    let analysed = analyses::segment_analyses(conn, id)?;
     let segments = media::segments(conn, id)?
         .into_iter()
         .map(|s| SegmentView {
+            analysis: analysed
+                .iter()
+                .find(|a| a.segment_id == Some(s.id))
+                .map(Into::into),
             link: match (&video_id, s.start_ms) {
                 (Some(v), Some(ms)) => youtube_link(v, ms.max(0) as u64).map(|u| u.to_string()),
                 _ => None,
@@ -233,6 +282,168 @@ pub fn item_segments(conn: &Connection, id: i64) -> Result<Option<Vec<SegmentVie
         })
         .collect();
     Ok(Some(segments))
+}
+
+#[derive(Debug, Serialize)]
+pub struct Feed {
+    pub generated_at: String,
+    pub highlights: Vec<Highlight>,
+}
+
+/// One recommendation. The `moment` points at the segment that earned the
+/// score, so five relevant minutes in a long video lead straight to them.
+#[derive(Debug, Serialize)]
+pub struct Highlight {
+    pub item_id: i64,
+    pub title: String,
+    pub source: Option<String>,
+    pub kind: String,
+    pub url: String,
+    pub published_at: Option<String>,
+    pub topic: Option<String>,
+    pub topics: Vec<String>,
+    pub summary: String,
+    /// Why it was picked: the rationale of the best-scoring segment.
+    pub why: String,
+    pub relevance: i64,
+    pub moment: Option<Moment>,
+    pub processing: Processing,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Moment {
+    pub segment_id: i64,
+    pub start: Option<String>,
+    pub start_ms: Option<i64>,
+    pub link: Option<String>,
+    pub summary: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Processing {
+    pub status: String,
+    pub partial: bool,
+    pub coverage: Option<f64>,
+}
+
+/// Ranked highlights from items analysed within the last `days` days
+/// (by publication, or discovery when unknown). One highlight per item,
+/// highest relevance first, newest first among equals. Items the reader
+/// marked `not_interested` or `already_known` are left out of the feed (they
+/// remain available through /v1/items: nothing is deleted).
+pub fn feed(conn: &Connection, limit: u32, days: u32, now_ms: i64) -> Result<Feed> {
+    let limit = limit.clamp(1, 50);
+    let since = now_ms - i64::from(days.clamp(1, 365)) * 86_400_000;
+    let mut stmt = conn.prepare_cached(
+        "SELECT a.item_id, a.relevance, i.kind, i.title, i.author, i.canonical_url, i.external_id,
+                i.published_at, a.summary, a.topics_json, a.rationale, a.best_segment_id
+         FROM analyses a JOIN items i ON i.id = a.item_id
+         WHERE a.segment_id IS NULL
+           AND a.created_at = (SELECT MAX(created_at) FROM analyses b
+                               WHERE b.item_id = a.item_id AND b.segment_id IS NULL)
+           AND IFNULL(i.published_at, i.discovered_at) >= ?1
+           AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.item_id = i.id
+                             AND f.verdict IN ('not_interested', 'already_known')
+                             AND f.created_at = (SELECT MAX(created_at) FROM feedback g WHERE g.item_id = i.id))
+         ORDER BY a.relevance DESC, IFNULL(i.published_at, i.discovered_at) DESC
+         LIMIT ?2",
+    )?;
+    struct Row {
+        item_id: i64,
+        relevance: i64,
+        kind: String,
+        title: String,
+        author: Option<String>,
+        url: String,
+        external_id: Option<String>,
+        published_at: Option<i64>,
+        summary: String,
+        topics_json: String,
+        rationale: String,
+        best_segment_id: Option<i64>,
+    }
+    let rows: Vec<Row> = stmt
+        .query_map(params![since, limit], |r| {
+            Ok(Row {
+                item_id: r.get(0)?,
+                relevance: r.get(1)?,
+                kind: r.get(2)?,
+                title: r.get(3)?,
+                author: r.get(4)?,
+                url: r.get(5)?,
+                external_id: r.get(6)?,
+                published_at: r.get(7)?,
+                summary: r.get(8)?,
+                topics_json: r.get(9)?,
+                rationale: r.get(10)?,
+                best_segment_id: r.get(11)?,
+            })
+        })?
+        .collect::<signalsift_storage::rusqlite::Result<_>>()?;
+
+    let mut highlights = Vec::with_capacity(rows.len());
+    for row in rows {
+        let topics: Vec<String> = serde_json::from_str(&row.topics_json).unwrap_or_default();
+        let moment = match row.best_segment_id {
+            Some(sid) => conn
+                .query_row(
+                    "SELECT s.start_ms, a.summary FROM segments s
+                     LEFT JOIN analyses a ON a.segment_id = s.id
+                     WHERE s.id = ?1 ORDER BY a.created_at DESC LIMIT 1",
+                    [sid],
+                    |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<String>>(1)?)),
+                )
+                .optional()?
+                .map(|(start_ms, summary)| Moment {
+                    segment_id: sid,
+                    start: start_ms.map(|ms| format_hms(ms.max(0) as u64)),
+                    link: match (row.kind.as_str(), &row.external_id, start_ms) {
+                        ("video", Some(v), Some(ms)) => {
+                            youtube_link(v, ms.max(0) as u64).map(|u| u.to_string())
+                        }
+                        _ => None,
+                    },
+                    start_ms,
+                    summary: summary.unwrap_or_default(),
+                }),
+            None => None,
+        };
+        let processing = match media::best_transcript(conn, row.item_id)? {
+            Some(t) => {
+                let v = TranscriptView::from(t);
+                Processing {
+                    status: v.status,
+                    partial: v.partial,
+                    coverage: v.coverage,
+                }
+            }
+            // Articles have no transcript: their text is complete as fetched.
+            None => Processing {
+                status: "complete".into(),
+                partial: false,
+                coverage: None,
+            },
+        };
+        highlights.push(Highlight {
+            item_id: row.item_id,
+            title: row.title,
+            source: row.author,
+            kind: row.kind,
+            url: row.url,
+            published_at: row.published_at.map(rfc3339),
+            topic: topics.first().cloned(),
+            topics,
+            summary: row.summary,
+            why: row.rationale,
+            relevance: row.relevance,
+            moment,
+            processing,
+        });
+    }
+    Ok(Feed {
+        generated_at: rfc3339(now_ms),
+        highlights,
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -369,6 +580,75 @@ pub(crate) mod tests {
             Some("https://www.youtube.com/watch?v=BZxHviFY_YY&t=754s")
         );
         assert_eq!(segs[0].start.as_deref(), Some("12:34"));
+    }
+
+    #[tokio::test]
+    async fn feed_points_at_the_best_segment_and_respects_feedback() {
+        use signalsift_storage::analyses::{NewAnalysis, upsert};
+        let (db, _dir, id) = seeded().await;
+        let row = move |seg: Option<i64>, relevance: i64, best: Option<i64>| NewAnalysis {
+            item_id: id,
+            segment_id: seg,
+            model: "m".into(),
+            prompt_version: "v1".into(),
+            profile_fingerprint: "f".into(),
+            summary: if seg.is_some() {
+                "OWASP AI cheat sheet".into()
+            } else {
+                "AI and security".into()
+            },
+            topics_json: r#"["security","LLM"]"#.into(),
+            matched_interests_json: "[]".into(),
+            relevance,
+            rationale: "covers prompt injection".into(),
+            applications_json: "[]".into(),
+            mentions_json: r#"["OWASP"]"#.into(),
+            best_segment_id: best,
+            stats_json: "{}".into(),
+        };
+        let now = 1_792_022_400_000 + 86_400_000;
+        let feed_now = db
+            .write(move |c| {
+                let sid: i64 =
+                    c.query_row("SELECT id FROM segments WHERE item_id = ?1", [id], |r| {
+                        r.get(0)
+                    })?;
+                upsert(c, &row(Some(sid), 88, None))?;
+                upsert(c, &row(None, 88, Some(sid)))?;
+                feed(c, 5, 14, now)
+            })
+            .await
+            .unwrap();
+        let h = &feed_now.highlights[0];
+        assert_eq!((h.relevance, h.topic.as_deref()), (88, Some("security")));
+        let m = h.moment.as_ref().unwrap();
+        assert_eq!(
+            m.link.as_deref(),
+            Some("https://www.youtube.com/watch?v=BZxHviFY_YY&t=754s")
+        );
+        assert!(
+            h.processing.partial,
+            "the seeded transcript is partial and must say so"
+        );
+
+        let after = db
+            .write(move |c| {
+                c.execute(
+                    "INSERT INTO feedback (item_id, verdict, created_at) VALUES (?1, 'not_interested', 1)",
+                    [id],
+                )?;
+                feed(c, 5, 14, now)
+            })
+            .await
+            .unwrap();
+        assert!(after.highlights.is_empty());
+        // Hidden from the feed, not deleted.
+        assert!(
+            db.read(move |c| item_detail(c, id))
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[tokio::test]

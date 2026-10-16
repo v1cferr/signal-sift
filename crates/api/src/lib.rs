@@ -74,6 +74,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/v1/status", get(status))
         .route("/v1/profile", put(writes::set_profile))
+        .route("/v1/feed", get(get_feed))
         .route("/v1/sources", get(list_sources))
         .route("/v1/items", get(list_items))
         .route("/v1/items/{id}", get(get_item))
@@ -131,6 +132,25 @@ struct SourcesResponse {
 async fn list_sources(State(state): State<AppState>) -> Result<Json<SourcesResponse>, ApiError> {
     let sources = state.inner.db.read(views::list_sources).await?;
     Ok(Json(SourcesResponse { sources }))
+}
+
+#[derive(Deserialize)]
+struct FeedQuery {
+    limit: Option<u32>,
+    days: Option<u32>,
+}
+
+async fn get_feed(
+    State(state): State<AppState>,
+    Query(q): Query<FeedQuery>,
+) -> Result<Json<views::Feed>, ApiError> {
+    let (limit, days) = (q.limit.unwrap_or(5), q.days.unwrap_or(14));
+    let feed = state
+        .inner
+        .db
+        .read(move |c| views::feed(c, limit, days, signalsift_storage::now_ms()))
+        .await?;
+    Ok(Json(feed))
 }
 
 #[derive(Deserialize)]
@@ -246,7 +266,7 @@ pub(crate) mod tests {
         let (code, body) = get_json(app, "/v1/status").await;
         assert_eq!(code, StatusCode::OK);
         assert_eq!(body["profile"], "gaming");
-        assert_eq!(body["database"]["schema_version"], 1);
+        assert_eq!(body["database"]["schema_version"], 2);
     }
 
     #[tokio::test]
