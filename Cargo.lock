@@ -1668,14 +1668,25 @@ dependencies = [
 name = "signalsift-media"
 version = "0.1.0"
 dependencies = [
- "nix",
  "serde",
  "serde_json",
  "signalsift-core",
+ "signalsift-process",
  "tempfile",
  "thiserror",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "signalsift-process"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]

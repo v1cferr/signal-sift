@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::subprocess::{self, Invocation, Limits, SubprocessError};
+use signalsift_process::subprocess::{self, Invocation, Limits, SubprocessError};
 
 pub use signalsift_core::youtube::{video_id, watch_url};
 

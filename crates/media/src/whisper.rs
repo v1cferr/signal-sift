@@ -19,7 +19,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::cue::{Cue, normalize};
-use crate::subprocess::{self, Invocation, Limits, SubprocessError};
+use signalsift_process::subprocess::{self, Invocation, Limits, SubprocessError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Chunk {

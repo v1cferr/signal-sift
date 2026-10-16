@@ -11,7 +11,8 @@
 pub mod cue;
 pub mod json3;
 pub mod segment;
-pub mod subprocess;
-pub mod usage;
 pub mod whisper;
 pub mod youtube;
+
+// Re-exported so existing `signalsift_media::subprocess` paths keep working.
+pub use signalsift_process::{subprocess, usage};
