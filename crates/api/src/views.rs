@@ -180,11 +180,8 @@ pub fn item_detail(conn: &Connection, id: i64) -> Result<Option<ItemDetail>> {
     else {
         return Ok(None);
     };
-    let segment_count = conn.query_row(
-        "SELECT count(*) FROM segments WHERE item_id = ?1",
-        [id],
-        |r| r.get(0),
-    )?;
+    // Same selection as the segments endpoint (best transcript only).
+    let segment_count = media::segments(conn, id)?.len() as i64;
     let mut stmt = conn.prepare_cached(
         "SELECT url, origin, at_ms FROM item_references WHERE item_id = ?1 ORDER BY IFNULL(at_ms, -1), id",
     )?;

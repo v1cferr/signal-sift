@@ -362,12 +362,17 @@ pub fn replace_segments(
     Ok(segments.len())
 }
 
+/// The item's current segments: those of its best transcript (see
+/// [`best_transcript`]), or the transcript-less ones (article sections) when
+/// it has no transcript. An item can hold several transcripts (captions and
+/// a forced ASR run, say); mixing their segments would duplicate content.
 pub fn segments(conn: &Connection, item_id: i64) -> Result<Vec<SegmentRow>> {
+    let transcript = best_transcript(conn, item_id)?.map(|t| t.id);
     let mut stmt = conn.prepare_cached(
         "SELECT id, seq, start_ms, end_ms, title, text FROM segments
-         WHERE item_id = ?1 ORDER BY start_ms, seq",
+         WHERE item_id = ?1 AND transcript_id IS ?2 ORDER BY start_ms, seq",
     )?;
-    let rows = stmt.query_map([item_id], |r| {
+    let rows = stmt.query_map(params![item_id, transcript], |r| {
         Ok(SegmentRow {
             id: r.get(0)?,
             seq: r.get(1)?,
@@ -464,6 +469,35 @@ mod tests {
             (t.cues, t.covered_ms, t.engine.as_str()),
             (0, 0, "whisper turbo")
         );
+    }
+
+    #[tokio::test]
+    async fn segments_come_from_the_best_transcript_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("t.db")).unwrap();
+        let listed = db
+            .write(|c| {
+                let id = upsert_item(c, &item("u"))?;
+                let seg = |t: &str| NewSegment {
+                    start_ms: Some(0),
+                    end_ms: Some(1),
+                    title: None,
+                    text: t.into(),
+                };
+                let asr = open_transcript(c, id, "asr", "pt", "w", Some(10))?;
+                append_cues(c, asr.id, &[cue(0, 1, "a")], 10)?;
+                finish_transcript(c, asr.id, "complete")?;
+                replace_segments(c, id, Some(asr.id), &[seg("from asr")])?;
+                let subs = open_transcript(c, id, "auto_subtitles", "pt", "yt", Some(10))?;
+                append_cues(c, subs.id, &[cue(0, 1, "b")], 10)?;
+                finish_transcript(c, subs.id, "complete")?;
+                replace_segments(c, id, Some(subs.id), &[seg("from captions")])?;
+                segments(c, id)
+            })
+            .await
+            .unwrap();
+        let texts: Vec<_> = listed.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(texts, ["from captions"]);
     }
 
     #[tokio::test]
