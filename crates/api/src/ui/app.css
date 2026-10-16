@@ -1,0 +1,78 @@
+/* Dark by default, in the palette family of the GLANCE dashboard; follows
+   the system when it asks for light. No external fonts (the CSP allows only
+   this origin): the stack prefers the monospace the desktop already has. */
+:root {
+  --bg: #1e1e2e; --card: #262637; --line: #363650; --text: #cdd6f4;
+  --sub: #a6adc8; --dim: #7f849c; --accent: #89b4fa; --good: #a6e3a1;
+  --warn: #f9e2af; --bad: #f38ba8;
+  --mono: "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #eff1f5; --card: #ffffff; --line: #dce0e8; --text: #4c4f69;
+          --sub: #5c5f77; --dim: #8c8fa1; --accent: #1e66f5; --good: #40a02b;
+          --warn: #df8e1d; --bad: #d20f39; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: var(--mono); font-size: 0.9em; }
+.muted { color: var(--dim); }
+
+.bar { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 12px;
+       align-items: center; justify-content: space-between; padding: 12px 24px;
+       background: var(--bg); border-bottom: 1px solid var(--line); }
+.brand { font: 700 18px var(--mono); color: var(--text); }
+.controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.field { display: flex; gap: 6px; align-items: center; color: var(--dim); font: 12px var(--mono); }
+select, input, button { font: 13px var(--mono); color: var(--text); background: var(--card);
+                        border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.ghost { background: transparent; }
+button.on { border-color: var(--accent); color: var(--accent); }
+
+main { max-width: 920px; margin: 0 auto; padding: 24px; }
+.empty { padding: 48px 0; text-align: center; color: var(--sub); }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+        padding: 16px 20px; margin-bottom: 16px; }
+.card h2 { margin: 0 0 4px; font-size: 17px; line-height: 1.35; }
+.card h2 a { color: var(--text); }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--dim); font: 12px var(--mono); }
+.score { font: 700 13px var(--mono); padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.s-hi { color: var(--good); } .s-mid { color: var(--warn); } .s-lo { color: var(--dim); }
+.chip { font: 12px var(--mono); color: var(--sub); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+.partial { color: var(--warn); border-color: var(--warn); }
+.summary { margin: 10px 0 6px; }
+.why { margin: 0 0 10px; color: var(--sub); font-size: 14px; }
+.why b { color: var(--dim); font-weight: 600; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.moment { font: 13px var(--mono); }
+.spacer { flex: 1; }
+
+.segments { list-style: none; padding: 0; margin: 16px 0 0; }
+.segment { border-top: 1px solid var(--line); padding: 12px 0; }
+.segment .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.segment details { margin-top: 6px; color: var(--sub); font-size: 14px; }
+.segment summary { cursor: pointer; color: var(--dim); font: 12px var(--mono); }
+.bar-score { height: 4px; border-radius: 2px; background: var(--line); margin-top: 6px; }
+.bar-score > span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.list { margin: 6px 0 0; padding-left: 18px; color: var(--sub); }
+
+.foot { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between;
+        padding: 16px 24px; border-top: 1px solid var(--line); color: var(--dim); font: 12px var(--mono); }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--card);
+         border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font: 13px var(--mono); }
+.toast.error { border-color: var(--bad); color: var(--bad); }
+
+dialog { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 14px; max-width: 460px; }
+dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+.token-form h2 { margin: 0 0 8px; font-size: 16px; }
+.token-form input { width: 100%; margin: 8px 0 12px; }
+.row { display: flex; gap: 8px; justify-content: flex-end; }
+
+@media (max-width: 600px) {
+  .bar, main, .foot { padding-left: 16px; padding-right: 16px; }
+}

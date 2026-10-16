@@ -100,6 +100,16 @@ With the daemon running, complete transcripts and new articles are analysed
 automatically. `llama-server` is started for a batch and stopped when the
 queue drains: no model stays in RAM or VRAM while idle.
 
+### Web UI
+
+With the daemon running, open <http://127.0.0.1:7878/>: the ranked feed,
+each highlight's moment (opens the video at the right second), the scored
+segments of every item, 👍/👎 feedback and the profile switch. Reading needs
+nothing; the first 👍/👎 asks for the token in
+`~/.local/state/signalsift/api-token`, kept in that browser only. The page is
+plain HTML/CSS/JS embedded in the binary (no Node, no build step) and only
+listens on loopback ([ADR 0010](docs/adr/0010-local-web-ui.md)).
+
 ## Configuration
 
 All keys are optional; see [`config/signalsift.example.toml`](config/signalsift.example.toml).
@@ -178,6 +188,7 @@ HTTP), `crates/media` (yt-dlp, ffmpeg, whisper.cpp), `crates/analysis`
 - [x] `/v1/feed` (ranked highlights) and the interest profile file
 - [ ] Preferences that adapt from like/dislike feedback ([ADR 0009](docs/adr/0009-feedback-driven-preferences.md))
 - [ ] Owner-reviewed, larger relevance evaluation set (built from that feedback)
+- [x] Local web UI: feed, segments, feedback, profile ([ADR 0010](docs/adr/0010-local-web-ui.md))
 - [ ] GLANCE dashboard integration ([design](docs/integration/glance.md))
 - [ ] Article text extraction for sites without feeds
 

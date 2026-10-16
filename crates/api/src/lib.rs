@@ -7,6 +7,7 @@
 pub mod auth;
 mod error;
 mod proc_stats;
+mod ui;
 pub mod views;
 mod writes;
 
@@ -81,6 +82,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/items/{id}/segments", get(get_segments))
         .route("/v1/feedback", post(writes::post_feedback))
         .route("/v1/media", post(writes::queue_media))
+        .merge(ui::routes())
         .fallback(|| async { ApiError::NotFound("no such route".into()) })
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

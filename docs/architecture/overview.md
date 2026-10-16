@@ -3,7 +3,7 @@
 ## Data flow
 
 ```
-sources (RSS/Atom, YouTube, podcasts)          clients (GLANCE, CLI, curl)
+sources (RSS/Atom, YouTube, podcasts)   clients (web UI at /, GLANCE, CLI, curl)
         │                                                ▲
         ▼                                                │ HTTP/JSON, loopback
   ingestion ──► items ──► media pipeline ──► transcripts ─┤
