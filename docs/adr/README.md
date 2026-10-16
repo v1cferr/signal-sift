@@ -14,3 +14,4 @@ pointer to the one that replaces it.
 | [0006](0006-api-contract.md) | API v1: loopback, one error envelope, shared read models | Accepted |
 | [0007](0007-license.md) | MIT OR Apache-2.0, enforced with cargo-deny | Accepted |
 | [0008](0008-nix.md) | Toolchain from nixpkgs; opt-in inference shell; user service | Accepted |
+| [0009](0009-feedback-driven-preferences.md) | Preferences adapt from like/dislike feedback | Proposed |

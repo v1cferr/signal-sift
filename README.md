@@ -176,7 +176,8 @@ HTTP), `crates/media` (yt-dlp, ffmpeg, whisper.cpp), `crates/analysis`
 - [x] `/v1/sources`, `PUT /v1/profile`, `POST /v1/feedback`, `POST /v1/media`
 - [x] Local LLM summaries and per-segment relevance (llama.cpp, model chosen by benchmark)
 - [x] `/v1/feed` (ranked highlights) and the interest profile file
-- [ ] Owner-reviewed, larger relevance evaluation set
+- [ ] Preferences that adapt from like/dislike feedback ([ADR 0009](docs/adr/0009-feedback-driven-preferences.md))
+- [ ] Owner-reviewed, larger relevance evaluation set (built from that feedback)
 - [ ] GLANCE dashboard integration ([design](docs/integration/glance.md))
 - [ ] Article text extraction for sites without feeds
 

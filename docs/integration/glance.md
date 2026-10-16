@@ -38,7 +38,9 @@ signalsift (daemon) ── GET /v1/feed ──► glance-feed source "signalsift
   highlights with a stale marker. No cache logic is needed in QML.
 - **No inference in QML or in glance-feed**: they only display what
   SignalSift already computed.
-- **Feedback** (`POST /v1/feedback`) needs the bearer token. QML would launch
+- **Feedback** (`POST /v1/feedback`) is how the ranking will learn the
+  reader's taste over time (ADR 0009): a like/dislike on each card, ideally
+  on the `moment` segment rather than only the item. It needs the bearer token. QML would launch
   `glance-feed feedback <item> <verdict>` (a process, as GLANCE already does
   for other actions), and the script reads the token from
   `$XDG_STATE_HOME/signalsift/api-token`. The token never appears in QML.
