@@ -15,6 +15,23 @@ use crate::{Result, now_ms};
 pub const MEDIA_CAPTIONS: &str = "media.captions";
 /// Local transcription of a video (heavy).
 pub const MEDIA_ASR: &str = "media.asr";
+/// LLM analysis of an item's segments and of the item (heavy).
+pub const ANALYSIS_ITEM: &str = "analysis.item";
+
+/// Queues the analysis of an item. `version` distinguishes what is being
+/// analysed (a transcript id, or "article"), so new text gets a new job while
+/// re-requests of the same text stay idempotent.
+pub fn enqueue_analysis(conn: &Connection, item_id: i64, version: &str) -> Result<Option<i64>> {
+    let payload = format!("{{\"item_id\":{item_id}}}");
+    enqueue(
+        conn,
+        ANALYSIS_ITEM,
+        &format!("analysis:{item_id}:{version}"),
+        WorkClass::Heavy,
+        &payload,
+        0,
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
