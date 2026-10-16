@@ -53,6 +53,7 @@ pub fn llama_config(config: &Config) -> anyhow::Result<LlamaConfig> {
         threads: config.analysis.threads,
         startup_timeout: Duration::from_secs(180),
         request_timeout: Duration::from_secs(300),
+        require_gpu: config.runtime.require_gpu,
     })
 }
 

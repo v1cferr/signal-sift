@@ -54,6 +54,11 @@ pub struct RuntimeConfig {
     /// How long shutdown waits for in-flight work before giving up.
     #[serde(with = "secs")]
     pub shutdown_grace: Duration,
+    /// Speech recognition and LLM inference must run on the GPU: a run that
+    /// does not allocate GPU memory is killed and the job fails, instead of
+    /// silently falling back to the much slower CPU (ADR 0011). Set to false
+    /// only on machines without a usable GPU.
+    pub require_gpu: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -202,6 +207,7 @@ impl Default for RuntimeConfig {
             profile: Profile::Balanced,
             heavy_concurrency: 1,
             shutdown_grace: Duration::from_secs(10),
+            require_gpu: true,
         }
     }
 }
@@ -281,6 +287,16 @@ impl Config {
         if self.collection.default_interval < Duration::from_secs(300) {
             return Err(ConfigError::Invalid(
                 "collection.default_interval must be at least 300 seconds".into(),
+            ));
+        }
+        if self.runtime.require_gpu && !self.asr.use_gpu {
+            return Err(ConfigError::Invalid(
+                "asr.use_gpu = false contradicts runtime.require_gpu = true (ADR 0011)".into(),
+            ));
+        }
+        if self.runtime.require_gpu && self.analysis.gpu_layers == 0 {
+            return Err(ConfigError::Invalid(
+                "analysis.gpu_layers = 0 means CPU inference, which runtime.require_gpu = true forbids".into(),
             ));
         }
         if self.asr.overlap >= self.asr.chunk {
@@ -380,6 +396,18 @@ mod tests {
         let c =
             Config::from_toml("[server]\nlisten = \"0.0.0.0:7878\"\nallow_non_loopback = true\n")
                 .unwrap();
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn cpu_inference_requires_an_explicit_opt_out() {
+        assert!(Config::default().runtime.require_gpu);
+        let c = Config::from_toml("[asr]\nuse_gpu = false\n").unwrap();
+        assert!(c.validate().is_err());
+        let c = Config::from_toml("[analysis]\ngpu_layers = 0\n").unwrap();
+        assert!(c.validate().is_err());
+        let c =
+            Config::from_toml("[runtime]\nrequire_gpu = false\n[asr]\nuse_gpu = false\n").unwrap();
         c.validate().unwrap();
     }
 

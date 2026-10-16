@@ -71,6 +71,8 @@ pub struct WhisperConfig {
     pub language: String,
     pub threads: u32,
     pub use_gpu: bool,
+    /// Fail rather than let whisper.cpp fall back to the CPU (ADR 0011).
+    pub require_gpu: bool,
     pub limits: Limits,
 }
 
@@ -149,7 +151,12 @@ async fn transcribe_inner(
         .arg(audio)
         .args(["-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-y"])
         .arg(wav);
-    let (_, ffmpeg) = subprocess::run_timed(ff, cfg.limits).await?;
+    // Audio decoding is CPU work: never subject to the GPU requirement.
+    let cpu_limits = Limits {
+        gpu_deadline: None,
+        ..cfg.limits
+    };
+    let (_, ffmpeg) = subprocess::run_timed(ff, cpu_limits).await?;
 
     let mut w = subprocess::command(&cfg.whisper_cli);
     w.arg("-m")
@@ -172,7 +179,11 @@ async fn transcribe_inner(
     if !cfg.use_gpu {
         w.arg("-ng");
     }
-    let (_, whisper) = subprocess::run_timed(w, cfg.limits).await?;
+    let mut whisper_limits = cfg.limits;
+    if cfg.require_gpu {
+        whisper_limits.gpu_deadline = Some(GPU_DEADLINE);
+    }
+    let (_, whisper) = subprocess::run_timed(w, whisper_limits).await?;
 
     let bytes = tokio::fs::read(json).await?;
     let raw = parse_output(&bytes, chunk.audio_start_ms).map_err(WhisperError::Output)?;
@@ -231,11 +242,13 @@ fn secs(ms: u64) -> String {
 /// Default subprocess limits for one chunk: generous, because a CPU-only
 /// fallback on a slow machine can take several times real time.
 pub fn default_chunk_limits(chunk: Duration) -> Limits {
-    Limits {
-        timeout: chunk * 10,
-        max_stdout: 16 * 1024 * 1024,
-    }
+    Limits::new(chunk * 10, 16 * 1024 * 1024)
 }
+
+/// How long whisper-cli gets to put the model in GPU memory before a run is
+/// considered a silent CPU fallback (ADR 0011). Loading takes 1-2 s on the
+/// reference machine.
+pub const GPU_DEADLINE: Duration = Duration::from_secs(30);
 
 #[cfg(test)]
 mod tests {

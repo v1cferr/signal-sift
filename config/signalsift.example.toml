@@ -22,6 +22,10 @@ profile = "balanced"
 heavy_concurrency = 1
 # Seconds shutdown waits for in-flight work.
 shutdown_grace = 10
+# Speech recognition and the LLM must run on the GPU; a run that falls back
+# to the CPU is killed and its job retried later. Set false only on machines
+# without a usable GPU (docs/adr/0011-gpu-required.md).
+require_gpu = true
 
 [media]
 yt_dlp = "yt-dlp"

@@ -32,6 +32,8 @@ async fn main() {
         language: "pt".into(),
         threads: 4,
         use_gpu: true,
+        // Benchmarks compare devices on purpose, CPU included.
+        require_gpu: false,
         limits: default_chunk_limits(Duration::from_millis(len_ms)),
     };
     let mut rest = args[4..].iter();

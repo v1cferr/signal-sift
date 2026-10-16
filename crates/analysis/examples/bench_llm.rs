@@ -43,6 +43,7 @@ async fn main() {
         threads: 4,
         startup_timeout: Duration::from_secs(180),
         request_timeout: Duration::from_secs(300),
+        require_gpu: true,
     };
     let server = LlamaServer::start(&cfg).await.expect("llama-server");
 

@@ -36,6 +36,10 @@ pub enum SubprocessError {
     Timeout { program: String, timeout: Duration },
     #[error("{program} wrote more than {limit} bytes to stdout")]
     OutputTooLarge { program: String, limit: u64 },
+    #[error(
+        "{program} ran without the GPU: no GPU memory allocated within {after:?}; refusing to run on the CPU (set runtime.require_gpu = false to allow it)"
+    )]
+    NoGpu { program: String, after: Duration },
     #[error("{program} exited with {status}: {stderr_tail}")]
     Failed {
         program: String,
@@ -53,6 +57,22 @@ pub enum SubprocessError {
 pub struct Limits {
     pub timeout: Duration,
     pub max_stdout: u64,
+    /// When set, the child must have allocated GPU memory (DRM fdinfo) within
+    /// this long, or its process group is killed and the run fails with
+    /// [`SubprocessError::NoGpu`]. Inference engines fall back to the CPU
+    /// silently when the GPU is unavailable; this turns that into an error
+    /// (ADR 0011).
+    pub gpu_deadline: Option<Duration>,
+}
+
+impl Limits {
+    pub fn new(timeout: Duration, max_stdout: u64) -> Self {
+        Self {
+            timeout,
+            max_stdout,
+            gpu_deadline: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -108,7 +128,7 @@ pub async fn run(mut cmd: Command, limits: Limits) -> Result<Output, SubprocessE
         let (out, err, status) = tokio::join!(
             read_capped(stdout, limits.max_stdout),
             read_tail(stderr, STDERR_TAIL),
-            sample_until_exit(&mut child, &sampler),
+            sample_until_exit(&mut child, &sampler, limits.gpu_deadline),
         );
         (out, err, status)
     };
@@ -127,7 +147,13 @@ pub async fn run(mut cmd: Command, limits: Limits) -> Result<Output, SubprocessE
         program: program.clone(),
         source,
     };
-    let status = status.map_err(io)?;
+    let (status, gpu_ok) = status.map_err(io)?;
+    if !gpu_ok {
+        return Err(SubprocessError::NoGpu {
+            program,
+            after: limits.gpu_deadline.unwrap_or_default(),
+        });
+    }
     let stderr_tail = String::from_utf8_lossy(&err.map_err(io)?).into_owned();
     let stdout = match out.map_err(io)? {
         Some(bytes) => bytes,
@@ -171,13 +197,42 @@ pub async fn run_timed(
     Ok((out, inv))
 }
 
-async fn sample_until_exit(child: &mut Child, sampler: &Sampler) -> std::io::Result<ExitStatus> {
+/// Waits for the child while sampling it. Returns the exit status and
+/// whether the GPU requirement held (always true without a deadline). On a
+/// missed deadline the child's group is killed here, so its pipes close and
+/// the readers running alongside finish too.
+async fn sample_until_exit(
+    child: &mut Child,
+    sampler: &Sampler,
+    gpu_deadline: Option<Duration>,
+) -> std::io::Result<(ExitStatus, bool)> {
+    let started = Instant::now();
     let mut tick = tokio::time::interval(SAMPLE_EVERY);
+    let mut gpu_ok = true;
     loop {
         tokio::select! {
-            status = child.wait() => return status,
-            _ = tick.tick() => sampler.sample(),
+            status = child.wait() => return Ok((status?, gpu_ok)),
+            _ = tick.tick() => {
+                sampler.sample();
+                if let Some(deadline) = gpu_deadline
+                    && gpu_ok
+                    && started.elapsed() >= deadline
+                    && sampler.finish().peak_vram_kib == 0
+                {
+                    gpu_ok = false;
+                    kill_group(child.id());
+                }
+            }
         }
+    }
+}
+
+fn kill_group(pid: Option<u32>) {
+    #[cfg(unix)]
+    if let Some(pid) = pid {
+        use nix::sys::signal::{Signal, killpg};
+        use nix::unistd::Pid;
+        let _ = killpg(Pid::from_raw(pid as i32), Signal::SIGKILL);
     }
 }
 
@@ -258,10 +313,7 @@ mod tests {
     use super::*;
 
     fn limits() -> Limits {
-        Limits {
-            timeout: Duration::from_secs(5),
-            max_stdout: 1024,
-        }
+        Limits::new(Duration::from_secs(5), 1024)
     }
 
     fn sh(script: &str) -> Command {
@@ -304,21 +356,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_process_without_gpu_memory_is_killed_at_the_deadline() {
+        // `sleep` never opens a render node, so it stands in for an engine
+        // that fell back to the CPU.
+        let mut l = Limits::new(Duration::from_secs(10), 1024);
+        l.gpu_deadline = Some(Duration::from_millis(500));
+        let started = Instant::now();
+        let err = run(sh("sleep 8"), l).await.unwrap_err();
+        assert!(matches!(err, SubprocessError::NoGpu { .. }), "{err:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "killed promptly, not at exit"
+        );
+    }
+
+    #[tokio::test]
     async fn timeout_kills_the_whole_process_group() {
         let dir = tempfile::tempdir().unwrap();
         let marker = dir.path().join("grandchild-survived");
         // The grandchild would create the marker after 2 s if it outlived the
         // timeout; killing the group must prevent that.
         let script = format!("(sleep 2; touch {}) & sleep 30", marker.display());
-        let err = run(
-            sh(&script),
-            Limits {
-                timeout: Duration::from_millis(300),
-                max_stdout: 1024,
-            },
-        )
-        .await
-        .unwrap_err();
+        let err = run(sh(&script), Limits::new(Duration::from_millis(300), 1024))
+            .await
+            .unwrap_err();
         assert!(matches!(err, SubprocessError::Timeout { .. }));
         tokio::time::sleep(Duration::from_millis(2500)).await;
         assert!(!marker.exists(), "grandchild outlived the timeout");

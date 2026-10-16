@@ -124,10 +124,10 @@ pub async fn prepare(config: &Config, db: &Db, input: &str) -> anyhow::Result<Pr
     let dir = config.cache_dir()?.join("media").join(&id);
     let ytdlp = YtDlp {
         program: config.media.yt_dlp.clone(),
-        limits: Limits {
-            timeout: config.media.subprocess_timeout,
-            max_stdout: config.media.max_output_bytes,
-        },
+        limits: Limits::new(
+            config.media.subprocess_timeout,
+            config.media.max_output_bytes,
+        ),
     };
     let info_path = dir.join("info.json");
     let (info, inv) = ytdlp
@@ -376,6 +376,7 @@ async fn transcribe(
         language: language.to_owned(),
         threads: config.asr.threads,
         use_gpu: config.asr.use_gpu,
+        require_gpu: config.runtime.require_gpu,
         limits: default_chunk_limits(config.asr.chunk),
     };
     let engine = cfg.engine_id();
@@ -402,10 +403,7 @@ async fn transcribe(
     // podcast is ~100 MB even at the low bitrate chosen.
     let audio_dl = YtDlp {
         program: ytdlp.program.clone(),
-        limits: Limits {
-            timeout: Duration::from_secs(1800),
-            max_stdout: ytdlp.limits.max_stdout,
-        },
+        limits: Limits::new(Duration::from_secs(1800), ytdlp.limits.max_stdout),
     };
     let (audio, inv) = match audio_dl.download_audio(info_path, &dir.join("audio")).await {
         Ok(r) => r,

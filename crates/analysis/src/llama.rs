@@ -26,6 +26,8 @@ pub struct LlamaConfig {
     pub threads: u32,
     pub startup_timeout: Duration,
     pub request_timeout: Duration,
+    /// Refuse to serve if the model did not land in GPU memory (ADR 0011).
+    pub require_gpu: bool,
 }
 
 pub struct LlamaServer {
@@ -97,6 +99,20 @@ impl LlamaServer {
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
 
+        if cfg.require_gpu {
+            // Weights are uploaded while loading, so by the time /health is
+            // OK a GPU-backed server holds VRAM. None means llama.cpp fell
+            // back to the CPU (no Vulkan device, driver problem).
+            service.sample();
+            if service.usage().peak_vram_kib == 0 {
+                service.stop(Duration::from_secs(5)).await;
+                return Err(InferenceError::Unavailable(
+                    "llama-server holds no GPU memory after loading: it fell back to the CPU, which \
+                     runtime.require_gpu forbids"
+                        .into(),
+                ));
+            }
+        }
         let model_id = format!(
             "llama.cpp {}",
             cfg.model
