@@ -24,10 +24,17 @@ SignalSift's own lock (the versions in docs/benchmarks/).
 
 ```nix
 # modules/home/services/signalsift.nix
-{ inputs, config, ... }:
+{ inputs, pkgs, ... }:
 
 let
-  models = "${config.home.homeDirectory}/.local/share/signalsift/models";
+  # Pinned by hash: the exact files benchmarked in docs/benchmarks/.
+  hf = repo: file: hash: pkgs.fetchurl {
+    url = "https://huggingface.co/${repo}/resolve/main/${file}";
+    inherit hash;
+  };
+  whisper = hf "ggerganov/whisper.cpp" "ggml-large-v3-turbo-q5_0.bin" "sha256-OUIhcJzVrR9AxG5gMcphvOiJMebgiMGIKUxtWlX/p+I=";
+  vad = hf "ggml-org/whisper-vad" "ggml-silero-v5.1.2.bin" "sha256-KZQNmNQrkfvQXOSJ8+z3xy8KQvAn5IdZGaKPtMBOos8=";
+  llm = hf "google/gemma-4-E4B-it-qat-q4_0-gguf" "gemma-4-E4B_q4_0-it.gguf" "sha256-Z2w1Bw222+Uvk+nIZO4Puk7d6pS5yHXZyxDa/0U/uu4=";
 in
 {
   imports = [ inputs.signal-sift.homeManagerModules.default ];
@@ -35,22 +42,28 @@ in
   services.signalsift = {
     enable = true;
     settings = {
-      asr.model = "${models}/ggml-large-v3-turbo-q5_0.bin";
-      asr.vad_model = "${models}/ggml-silero-v5.1.2.bin";
-      analysis.model = "${models}/gemma-4-E4B_q4_0-it.gguf";
-      # Versioned with the rest of the configuration; edit it to change what
-      # counts as relevant. Copy config/interests.example.toml to start.
+      runtime.require_gpu = true; # the default; GPU or nothing (ADR 0011)
+      asr.model = "${whisper}";
+      asr.vad_model = "${vad}";
+      analysis.model = "${llm}";
+      # Versioned with the configuration; start from config/interests.example.toml.
       analysis.interests_file = "${./signalsift-interests.toml}";
     };
   };
 }
 ```
 
-and add `./signalsift.nix` to the imports of `modules/home/services/default.nix`.
+and add `./signalsift.nix` to the imports of your home services.
 
-Models are not managed by Nix (they are large, and SignalSift never downloads
-them): fetch them once into `~/.local/share/signalsift/models`, see the
-README and docs/benchmarks/ for the exact files and checksums.
+The models are declared, so a reinstall needs no manual step; it is still
+the configuration that fetches them, never the daemon. If the files are
+already on disk, add them to the store first so the build downloads nothing:
+
+```sh
+nix-store --add-fixed sha256 ~/.local/share/signalsift/models/gemma-4-E4B_q4_0-it.gguf   # and the other two
+```
+
+This is how the owner's dotfiles deploy it (commit `8ca8a221` there, 2026-10-16).
 
 ## 3. After the first switch
 
