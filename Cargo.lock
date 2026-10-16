@@ -1612,6 +1612,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "signalsift-analysis",
  "signalsift-api",
  "signalsift-core",
  "signalsift-ingestion",
@@ -1622,6 +1623,20 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "signalsift-analysis"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "signalsift-process",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
 ]
 
 [[package]]

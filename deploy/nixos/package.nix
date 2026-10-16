@@ -22,6 +22,7 @@ rustPlatform.buildRustPackage {
       (root + "/crates")
       (root + "/config/signalsift.example.toml") # embedded by a config test
       (root + "/config/sources.example.toml") # embedded by an import test
+      (root + "/config/interests.example.toml") # embedded by a profile test
       (root + "/contracts") # OpenAPI document, checked against the router by a test
       (root + "/tests/fixtures") # synthetic feeds embedded by parser tests
     ];

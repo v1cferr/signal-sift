@@ -17,6 +17,7 @@ signalsift-api = { path = "crates/api" }
 signalsift-media = { path = "crates/media" }
 signalsift-ingestion = { path = "crates/ingestion" }
 signalsift-process = { path = "crates/process" }
+signalsift-analysis = { path = "crates/analysis" }
 
 anyhow = "1.0.104"
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio", "tracing"] }

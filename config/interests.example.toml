@@ -1,0 +1,48 @@
+# Interest profile used to score relevance. Copy to
+# ~/.config/signalsift/interests.toml and edit freely: the text is given to
+# the model as-is. A topic with a short description scores more consistently
+# than a bare label. Changing this file changes the profile fingerprint, so
+# older scores can be told apart from new ones.
+
+about = """
+A software engineer on NixOS who follows long technical videos, podcasts and
+blogs. Useful means: something they could learn, adopt, try or watch in full
+because of a specific part. A brief but concrete mention of a relevant tool or
+technique counts; vague hype does not.
+"""
+
+[[topic]]
+name = "Rust, Linux and NixOS"
+description = "Rust language and ecosystem, Linux internals and tooling, Nix/NixOS, flakes, reproducible builds."
+
+[[topic]]
+name = "Software engineering"
+description = "Architecture, testing, code quality, maintainability, developer practices, career-relevant engineering insight."
+
+[[topic]]
+name = "Infrastructure and observability"
+description = "Servers, self-hosting, networking, monitoring, tracing, logging, reliability."
+
+[[topic]]
+name = "DevOps, DevSecOps and security"
+description = "CI/CD, supply chain, secure coding, vulnerabilities, threat models, security tooling and guidelines (e.g. OWASP)."
+
+[[topic]]
+name = "LLMs, RAG, agents and MCP"
+description = "How language models are used in practice: coding agents, retrieval, tool use, Model Context Protocol, evaluation, limits."
+
+[[topic]]
+name = "Local inference and open models"
+description = "Running models locally, quantization, llama.cpp, whisper.cpp, open-weight model releases and comparisons."
+
+[[topic]]
+name = "Performance and hardware"
+description = "Profiling, optimization, CPUs, memory, benchmarks, hardware reviews relevant to development machines."
+
+[[topic]]
+name = "Intel GPUs, Vulkan and low-power tooling"
+description = "Intel Arc, Vulkan compute, energy-efficient and lightweight tools."
+
+[[topic]]
+name = "Automation and new developer tools"
+description = "New tools, CLIs, editors, workflows and automations worth trying."
